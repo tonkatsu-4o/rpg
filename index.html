@@ -7,53 +7,95 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', 'Noto Serif JP', sans-serif;
-            overscroll-behavior: none;
-        }
-        .rpg-box {
-            border: 2px solid #4a5568;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5);
-        }
-        .rpg-button {
-            background-color: #2d3748;
-            border: 1px solid #4a5568;
-            transition: all 0.2s ease-in-out;
-        }
-        .rpg-button:hover {
-            background-color: #4a5568;
-            border-color: #718096;
-            transform: translateY(-2px);
-        }
-        /* 画面の表示・非表示 */
-        .screen {
-            display: none;
-            animation: fadeIn 0.5s;
-        }
-        .active-screen {
-            display: block;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        /* スクロールバーのスタイル */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #2d3748;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #718096;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #a0aec0;
-        }
+        body { font-family: 'Inter', 'Noto Serif JP', sans-serif; overscroll-behavior: none; }
+        .rpg-box { border: 2px solid #4a5568; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        .rpg-button { background-color: #2d3748; border: 1px solid #4a5568; transition: all 0.2s ease-in-out; }
+        .rpg-button:hover:not(:disabled) { background-color: #4a5568; border-color: #718096; transform: translateY(-2px); }
+        .rpg-button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .screen { display: none; animation: fadeIn 0.5s; }
+        .active-screen { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #2d3748; }
+        ::-webkit-scrollbar-thumb { background: #718096; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
+        .party-member-card.active { background-color: #4a5568; border-color: #a0aec0; }
+        #notification-popup { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 8px; color: white; z-index: 100; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s, transform 0.3s; }
+        #notification-popup.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+        #notification-popup.error { background-color: #c53030; }
+        #notification-popup.success { background-color: #2f855a; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200">
+
+    <!-- 通知ポップアップ -->
+    <div id="notification-popup"></div>
+
+    <!-- 名前変更モーダル -->
+    <div id="name-change-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
+            <h2 class="text-2xl font-bold mb-4 text-yellow-400">名前の変更</h2>
+            <p class="mb-4">新しい名前を入力してください。</p>
+            <input id="name-change-input" type="text" maxlength="10" class="w-full bg-gray-900 text-white p-2 rounded border border-gray-600" placeholder="10文字以内">
+            <div class="flex justify-end gap-4 mt-6">
+                <button id="name-change-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
+                <button id="name-change-confirm-btn" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg">決定</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 売却モーダル -->
+    <div id="sell-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
+            <h2 id="sell-item-name" class="text-2xl font-bold mb-2 text-yellow-400"></h2>
+            <p class="mb-4">売却する数を選択してください。</p>
+            <div class="flex items-center justify-center gap-4 my-6">
+                <button id="sell-qty-minus" class="rpg-button w-10 h-10 text-2xl rounded-full">-</button>
+                <input id="sell-qty-input" type="number" value="1" min="1" class="w-20 h-12 text-center text-2xl bg-gray-900 border border-gray-600 rounded">
+                <button id="sell-qty-plus" class="rpg-button w-10 h-10 text-2xl rounded-full">+</button>
+            </div>
+            <div class="text-center text-xl mb-6">
+                <p>売却価格: <span id="sell-total-price" class="font-bold text-yellow-400"></span> G</p>
+            </div>
+            <div class="flex justify-end gap-4">
+                <button id="sell-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
+                <button id="sell-confirm-btn" class="bg-red-700 hover:bg-red-600 text-white px-6 py-2 rounded-lg">売却する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 装備変更モーダル -->
+    <div id="equipment-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-lg w-full rpg-box">
+            <h2 id="equipment-slot-name" class="text-2xl font-bold mb-4 text-yellow-400"></h2>
+            <div id="equipment-list" class="max-h-80 overflow-y-auto space-y-2 pr-2"></div>
+            <div class="text-right mt-6">
+                <button id="equipment-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 購入モーダル -->
+    <div id="purchase-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
+            <h2 id="purchase-item-name" class="text-2xl font-bold mb-2 text-yellow-400"></h2>
+            <p id="purchase-item-desc" class="mb-4 text-gray-400"></p>
+            <div class="flex items-center justify-center gap-4 my-6">
+                <button id="purchase-qty-minus" class="rpg-button w-10 h-10 text-2xl rounded-full">-</button>
+                <input id="purchase-qty-input" type="number" value="1" min="1" max="99" class="w-20 h-12 text-center text-2xl bg-gray-900 border border-gray-600 rounded">
+                <button id="purchase-qty-plus" class="rpg-button w-10 h-10 text-2xl rounded-full">+</button>
+            </div>
+            <div class="text-center text-xl mb-6">
+                <p>合計金額: <span id="purchase-total-cost" class="font-bold text-yellow-400"></span> G</p>
+                <p class="text-sm">所持金: <span id="purchase-player-gold" class="text-gray-400"></span> G</p>
+                <p id="purchase-warning" class="text-red-500 text-sm min-h-[1.25rem] mt-1"></p>
+            </div>
+            <div class="flex justify-end gap-4">
+                <button id="purchase-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
+                <button id="purchase-confirm-btn" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg">購入する</button>
+            </div>
+        </div>
+    </div>
 
     <!-- 確認モーダル -->
     <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
@@ -72,8 +114,9 @@
         <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-lg w-full rpg-box">
             <div id="new-game-selection">
                 <h2 class="text-2xl font-bold mb-4 text-yellow-400">王国より</h2>
-                <p class="mb-6">ようこそ、新たなる探索者よ。この世界は広大で、多くの謎と危険に満ちている。君の冒険が、この地に新たな光をもたらすことを期待している。</p>
-                <p class="mb-4 font-semibold">汝の職業を選びたまえ：</p>
+                <p class="mb-4">ようこそ、新たなる探索者よ。まずは君の名を教えてくれ。</p>
+                <input id="player-name-input" type="text" maxlength="10" class="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 mb-6" placeholder="あなたの名前 (未入力で「冒険者」)">
+                <p class="mb-4 font-semibold">次に、汝の職業を選びたまえ：</p>
                 <div class="flex gap-4 mb-6">
                     <button id="select-swordsman" class="rpg-button flex-1 p-4 rounded-lg text-lg">剣士</button>
                     <button id="select-mage" class="rpg-button flex-1 p-4 rounded-lg text-lg">魔導士</button>
@@ -104,14 +147,12 @@
         <div id="main-menu-screen" class="screen active-screen">
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
                 <h1 class="text-3xl font-bold text-center mb-6 border-b-2 border-gray-600 pb-3">メインメニュー</h1>
-                <!-- ステータス表示 -->
                 <div id="status-display" class="mb-6 text-lg grid grid-cols-2 gap-x-4 gap-y-2">
-                    <div>職業: <span id="player-class" class="font-semibold text-cyan-400"></span></div>
+                    <div>名前: <span id="player-name" class="font-semibold text-cyan-400"></span></div>
                     <div>レベル: <span id="player-level" class="font-semibold text-green-400"></span></div>
-                    <div>経験値: <span id="player-exp" class="font-semibold text-green-400"></span></div>
+                    <div>職業: <span id="player-class" class="font-semibold text-cyan-400"></span></div>
                     <div>所持金: <span id="player-gold" class="font-semibold text-yellow-400"></span> G</div>
                 </div>
-                <!-- メインメニュー -->
                 <nav class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button data-screen="kingdom" class="p-4 rounded rpg-button text-lg">王国</button>
                     <button data-screen="explore" class="p-4 rounded rpg-button text-lg">探索</button>
@@ -148,29 +189,15 @@
                 <div id="guild-tab-1" class="guild-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2 text-yellow-300">よう、新人！俺が探索のイロハを教えてやる。</h3>
                     <div class="space-y-4">
-                        <div>
-                            <h4 class="text-lg font-bold">探索について</h4>
-                            <p>「探索」からフィールドを選んで冒険に出るんだ。モンスターを倒して経験値や素材、金を手に入れろ。レベルが上がれば、もっと強くなれるぜ。</p>
-                        </div>
-                        <div>
-                            <h4 class="text-lg font-bold">装備の重要性</h4>
-                            <p>「鍛冶屋」で新しい装備を買ったり、モンスターの素材で特別な装備を作ったりできる。良い装備はあんたの命を守る。金や素材を惜しむなよ。</p>
-                        </div>
-                        <div>
-                            <h4 class="text-lg font-bold">アイテムを活用しろ</h4>
-                            <p>「雑貨屋」では回復薬なんかの便利なものが手に入る。探索に行く前には準備を万端にしておけ。持ってるアイテムは「アイテム」メニューから確認できるぞ。</p>
-                        </div>
-                         <div>
-                            <h4 class="text-lg font-bold">仲間と協力だ</h4>
-                            <p>冒険は一人じゃない。「パーティ」メニューから仲間の様子を確認したり、装備を変えてやったりできる。頼りになる仲間がいれば百人力だ。</p>
-                        </div>
+                        <div><h4 class="text-lg font-bold">探索について</h4><p>「探索」からフィールドを選んで冒険に出るんだ。モンスターを倒して経験値や素材、金を手に入れろ。レベルが上がれば、もっと強くなれるぜ。</p></div>
+                        <div><h4 class="text-lg font-bold">装備の重要性</h4><p>「鍛冶屋」で新しい装備を買ったり、モンスターの素材で特別な装備を作ったりできる。良い装備はあんたの命を守る。金や素材を惜しむなよ。</p></div>
+                        <div><h4 class="text-lg font-bold">アイテムを活用しろ</h4><p>「雑貨屋」では回復薬なんかの便利なものが手に入る。探索に行く前には準備を万端にしておけ。持ってるアイテムは「アイテム」メニューから確認できるぞ。</p></div>
+                         <div><h4 class="text-lg font-bold">仲間と協力だ</h4><p>冒険は一人じゃない。「パーティ」メニューから仲間の様子を確認したり、装備を変えてやったりできる。頼りになる仲間がいれば百人力だ。</p></div>
                     </div>
                 </div>
                 <div id="guild-tab-2" class="guild-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2">各フィールドの探索状況</h3>
-                    <div id="field-progress-container" class="space-y-4">
-                        <!-- JSで探索状況を生成 -->
-                    </div>
+                    <div id="field-progress-container" class="space-y-4"></div>
                 </div>
             </div>
         </div>
@@ -178,7 +205,10 @@
         <!-- 鍛冶屋 -->
         <div id="blacksmith-screen" class="screen">
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded mb-4">← 王国へ戻る</button>
+                <div class="flex justify-between items-center mb-4">
+                    <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded">← 王国へ戻る</button>
+                    <div class="text-lg">所持金: <span id="blacksmith-gold" class="font-semibold text-yellow-400"></span> G</div>
+                </div>
                 <h2 class="text-2xl font-bold mb-4">鍛冶屋</h2>
                 <p class="italic bg-gray-900 p-3 rounded-md mb-4">「へい、いらっしゃい！　ウチの武具は一級品だぜ。見ていきな！」</p>
                 <div class="flex gap-2 mb-4">
@@ -187,15 +217,11 @@
                 </div>
                 <div id="blacksmith-tab-1" class="blacksmith-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2">購入可能な装備</h3>
-                    <div id="blacksmith-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- JSでリストを生成 -->
-                    </div>
+                    <div id="blacksmith-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
                 </div>
                 <div id="blacksmith-tab-2" class="blacksmith-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2">作成可能な装備</h3>
-                    <div id="blacksmith-craft-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- JSでリストを生成 -->
-                    </div>
+                    <div id="blacksmith-craft-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
                 </div>
             </div>
         </div>
@@ -203,7 +229,10 @@
         <!-- 雑貨屋 -->
         <div id="general-store-screen" class="screen">
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded mb-4">← 王国へ戻る</button>
+                <div class="flex justify-between items-center mb-4">
+                    <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded">← 王国へ戻る</button>
+                    <div class="text-lg">所持金: <span id="general-store-gold" class="font-semibold text-yellow-400"></span> G</div>
+                </div>
                 <h2 class="text-2xl font-bold mb-4">雑貨屋</h2>
                 <p class="italic bg-gray-900 p-3 rounded-md mb-4">「あら、いらっしゃい。冒険に役立つものを揃えてるわよ。ゆっくり見ていってね。」</p>
                 <div class="flex gap-2 mb-4">
@@ -212,15 +241,11 @@
                 </div>
                 <div id="store-tab-1" class="store-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2">商品リスト</h3>
-                    <div id="store-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- JSでリストを生成 -->
-                    </div>
+                    <div id="store-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
                 </div>
                 <div id="store-tab-2" class="store-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
                     <h3 class="text-xl font-semibold mb-2">所持アイテムを売却</h3>
-                    <div id="store-sell-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <!-- JSでリストを生成 -->
-                    </div>
+                    <div id="store-sell-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
                 </div>
             </div>
         </div>
@@ -240,9 +265,7 @@
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
                 <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
                 <h2 class="text-2xl font-bold mb-4">探索</h2>
-                <div id="explore-field-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- JSで探索可能なフィールドを生成 -->
-                </div>
+                <div id="explore-field-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
             </div>
         </div>
 
@@ -250,8 +273,11 @@
         <div id="party-screen" class="screen">
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
                 <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">パーティ</h2>
-                <p class="text-center text-2xl mt-12 text-yellow-400">🚧 現在実装中です 🚧</p>
+                <h2 class="text-2xl font-bold mb-4">パーティ編成</h2>
+                <div class="flex flex-col md:flex-row gap-4">
+                    <div id="party-member-list" class="flex md:flex-col gap-2"></div>
+                    <div id="party-member-details" class="flex-grow bg-gray-900 p-4 rounded-lg"></div>
+                </div>
             </div>
         </div>
 
@@ -259,8 +285,12 @@
         <div id="items-screen" class="screen">
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
                 <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">アイテム</h2>
-                <p class="text-center text-2xl mt-12 text-yellow-400">🚧 現在実装中です 🚧</p>
+                <h2 class="text-2xl font-bold mb-4">所持アイテム</h2>
+                <div class="flex gap-2 mb-4">
+                    <button class="rpg-button px-4 py-2 rounded-t-lg" onclick="renderItemsScreen('equipment', this)">装備品</button>
+                    <button class="rpg-button px-4 py-2 rounded-t-lg opacity-60" onclick="renderItemsScreen('other', this)">消耗品/素材</button>
+                </div>
+                <div id="inventory-list" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2 bg-gray-900 p-4 rounded-b-lg rounded-r-lg"></div>
             </div>
         </div>
 
@@ -272,6 +302,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                     <button data-screen="monster-book" class="p-4 rounded rpg-button text-lg">モンスター図鑑</button>
                     <button data-screen="export-data" class="p-4 rounded rpg-button text-lg">データのエクスポート</button>
+                    <button id="name-change-btn" class="p-4 rounded rpg-button text-lg">名前の変更</button>
                     <button id="reset-data-btn" class="p-4 rounded bg-red-800 hover:bg-red-700 text-lg">ゲームデータのリセット</button>
                 </div>
             </div>
@@ -282,9 +313,7 @@
             <div class="bg-gray-800 p-6 rounded-lg rpg-box">
                 <button data-screen="options" class="rpg-button px-4 py-1 rounded mb-4">← オプションへ戻る</button>
                 <h2 class="text-2xl font-bold mb-4">モンスター図鑑</h2>
-                <div id="monster-list" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2">
-                    <!-- JSで図鑑を生成 -->
-                </div>
+                <div id="monster-list" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2"></div>
             </div>
         </div>
         
@@ -304,57 +333,35 @@
 <script>
 // =================================================================================
 // データベース
-// ゲーム内のアイテム、モンスター、レシピなどの静的データを定義します。
-// 新しい要素を追加する際は、このセクションを編集してください。
 // =================================================================================
 const DB = {
     items: {
-        'weapon001': { name: '銅の剣', type: 'weapon', price: 120, sellPrice: 60, description: 'ありふれた銅製の剣。', stats: { atk: 5 } },
-        'weapon002': { name: '鉄の剣', type: 'weapon', price: 500, sellPrice: 250, description: '銅の剣より丈夫で切れ味がいい。', stats: { atk: 12 } },
-        'weapon101': { name: '初心者の杖', type: 'weapon', price: 100, sellPrice: 50, description: '魔力の込められた樫の杖。', stats: { matk: 6 } },
-        'armor001': { name: '皮の服', type: 'body', price: 80, sellPrice: 40, description: '動物の皮で作られた簡単な服。', stats: { def: 4 } },
+        'weapon001': { name: '銅の剣', type: 'weapon', price: 120, sellPrice: 60, description: 'ありふれた銅製の剣。', stats: { St: 5 } },
+        'weapon002': { name: '鉄の剣', type: 'weapon', price: 500, sellPrice: 250, description: '銅の剣より丈夫で切れ味がいい。', stats: { St: 12 } },
+        'weapon101': { name: '初心者の杖', type: 'weapon', price: 100, sellPrice: 50, description: '魔力の込められた樫の杖。', stats: { In: 6 } },
+        'head001': { name: '皮の帽子', type: 'head', price: 60, sellPrice: 30, description: '簡単な皮の帽子。', stats: { Pa: 2 } },
+        'body001': { name: '皮の服', type: 'body', price: 80, sellPrice: 40, description: '動物の皮で作られた簡単な服。', stats: { Pa: 4 } },
+        'legs001': { name: '皮のズボン', type: 'legs', price: 70, sellPrice: 35, description: '簡単な皮のズボン。', stats: { Pa: 3 } },
+        'accessory001': { name: '力の指輪', type: 'accessory', price: 1000, sellPrice: 500, description: '筋力が少し上昇する指輪。', stats: { St: 3 } },
         'item001': { name: '薬草', type: 'consumable', price: 20, sellPrice: 10, description: 'HPを少し回復する。' },
         'item002': { name: '魔力水', type: 'consumable', price: 50, sellPrice: 25, description: 'MPを少し回復する。' },
         'material001': { name: 'ワームの粘液', type: 'material', sellPrice: 5, description: 'ワームから採れるネバネバした液体。' },
         'material002': { name: 'ゴブリンの棍棒', type: 'material', sellPrice: 12, description: 'ゴブリンが使っていた粗末な棍棒。' },
     },
-    monsters: {
-        'worm': { no: 1, name: 'ワーム', race: '蟲族', habitat: '平原、洞窟', story: '土の中に生息する大型のミミズのようなモンスター。特に毒はないが、その粘液は様々な薬品の材料になる。' },
-        'titan_worm': { no: 2, name: 'タイタンワーム', race: '蟲族', habitat: '汚染された土地', story: 'ワームが巨大化した亜種。強靭な外皮を持ち、並大抵の攻撃では傷一つつかないと言われている。' },
-        'harpy': { no: 3, name: 'ハーピィ', race: '鳥人族', habitat: '山岳地帯', story: '女性の顔と鳥の体を持つモンスター。その歌声は船乗りを惑わせるという言い伝えがある。' },
-        'goblin': { no: 4, name: 'ゴブリン', race: '亜人族', habitat: '森、洞窟', story: '知能は低いが、集団で行動する厄介なモンスター。手製の棍棒で襲いかかってくる。' },
-        'goblin_archer': { no: 5, name: 'ゴブリンアーチャー', race: '亜人族', habitat: '森', story: '弓矢の扱いを覚えたゴブリン。後方からの支援射撃は、単純ながらも脅威となる。' },
-        'goblin_mage': { no: 6, name: 'ゴブリンメイジ', race: '亜人族', habitat: '古代遺跡', story: 'ゴブリンの中でも特に知能の高い個体。初歩的な魔法を操り、火の玉などを放ってくる。' },
-        'mega_goblin': { no: 7, name: 'メガゴブリン', race: '亜人族', habitat: 'ゴブリンの巣', story: 'ゴブリンの王とも呼ばれる巨大な個体。その怪力は岩をも砕くと恐れられている。' },
-        'unknown008': { no: 8, name: '？？？', race: '？？？', habitat: '？？？', story: '未確認のモンスター。' },
-        'unknown009': { no: 9, name: '？？？', race: '？？？', habitat: '？？？', story: '未確認のモンスター。' },
-    },
-    fields: {
-        'hearts_plain': { name: 'ハーツ平原' },
-        'misty_forest': { name: '霧の森' },
-    },
-    blacksmithPurchaseConditions: [
-        { itemId: 'weapon001', condition: (gameData) => true },
-        { itemId: 'armor001', condition: (gameData) => true },
-        { itemId: 'weapon002', condition: (gameData) => gameData.player.level >= 5 },
-    ],
-    blacksmithCraftRecipes: [
-        {
-            itemId: 'weapon002',
-            materials: [{ id: 'material002', quantity: 5 }, { id: 'material001', quantity: 10 }],
-            condition: (gameData) => gameData.items.some(item => item.id === 'material002')
-        }
-    ],
-    generalStorePurchaseConditions: [
-        { itemId: 'item001', condition: (gameData) => true },
-        { itemId: 'item002', condition: (gameData) => gameData.player.class === '魔導士' || gameData.player.level >= 3 },
-    ],
+    monsters: {'worm':{no:1,name:'ワーム',race:'蟲族',habitat:'平原、洞窟',story:'土の中に生息する大型のミミズのようなモンスター。特に毒はないが、その粘液は様々な薬品の材料になる。'},'titan_worm':{no:2,name:'タイタンワーム',race:'蟲族',habitat:'汚染された土地',story:'ワームが巨大化した亜種。強靭な外皮を持ち、並大抵の攻撃では傷一つつかないと言われている。'},'harpy':{no:3,name:'ハーピィ',race:'鳥人族',habitat:'山岳地帯',story:'女性の顔と鳥の体を持つモンスター。その歌声は船乗りを惑わせるという言い伝えがある。'},'goblin':{no:4,name:'ゴブリン',race:'亜人族',habitat:'森、洞窟',story:'知能は低いが、集団で行動する厄介なモンスター。手製の棍棒で襲いかかってくる。'},'goblin_archer':{no:5,name:'ゴブリンアーチャー',race:'亜人族',habitat:'森',story:'弓矢の扱いを覚えたゴブリン。後方からの支援射撃は、単純ながらも脅威となる。'},'goblin_mage':{no:6,name:'ゴブリンメイジ',race:'亜人族',habitat:'古代遺跡',story:'ゴブリンの中でも特に知能の高い個体。初歩的な魔法を操り、火の玉などを放ってくる。'},'mega_goblin':{no:7,name:'メガゴブリン',race:'亜人族',habitat:'ゴブリンの巣',story:'ゴブリンの王とも呼ばれる巨大な個体。その怪力は岩をも砕くと恐れられている。'},'unknown008':{no:8,name:'？？？',race:'？？？',habitat:'？？？',story:'未確認のモンスター。'},'unknown009':{no:9,name:'？？？',race:'？？？',habitat:'？？？',story:'未確認のモンスター。'}},
+    fields: {'hearts_plain':{name:'ハーツ平原'},'misty_forest':{name:'霧の森'}},
+    blacksmithPurchaseConditions: [ { itemId: 'weapon001', condition: (gameData) => true }, { itemId: 'head001', condition: (gameData) => true }, { itemId: 'body001', condition: (gameData) => true }, { itemId: 'legs001', condition: (gameData) => true }, { itemId: 'weapon002', condition: (gameData) => gameData.party[0].level >= 5 }, { itemId: 'accessory001', condition: (gameData) => gameData.party[0].level >= 10 }, ],
+    blacksmithCraftRecipes: [{itemId:'weapon002',materials:[{id:'material002',quantity:5},{id:'material001',quantity:10}],condition:(gameData)=>gameData.items.some(item=>item.id==='material002')}],
+    generalStorePurchaseConditions: [{itemId:'item001',condition:(gameData)=>true},{itemId:'item002',condition:(gameData)=>gameData.party[0].class==='魔導士'||gameData.party[0].level>=3}],
 };
 
 // =================================================================================
 // ゲームロジック
 // =================================================================================
 let gameData;
+let currentPurchase = { itemId: null, quantity: 1, price: 0 };
+let currentSell = { itemId: null, quantity: 1, sellPrice: 0, maxQuantity: 0 };
+let currentEquipmentChange = { memberIndex: null, slot: null };
 
 // --- ゲームの初期化とセーブ/ロード ---
 window.onload = function() {
@@ -381,61 +388,45 @@ function saveGame() {
     }
 }
 
+function generateStats(playerClass) {
+    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    let stats = { Li: rand(8, 12), St: rand(8, 12), In: rand(8, 12), Pa: rand(8, 12), Ag: rand(8, 12) };
+    if (playerClass === '剣士') {
+        stats.St = rand(12, 16);
+        stats.In = rand(3, 6);
+    } else if (playerClass === '魔導士') {
+        stats.In = rand(12, 16);
+        stats.St = rand(3, 6);
+    }
+    return stats;
+}
+
 function initNewGame(playerClass) {
+    const playerName = document.getElementById('player-name-input').value.trim() || '冒険者';
+    const player = {
+        name: playerName,
+        class: playerClass,
+        level: 1,
+        exp: 0,
+        nextExp: 100,
+        baseStats: generateStats(playerClass),
+        equipment: { weapon: null, head: null, body: null, legs: null, accessory1: null, accessory2: null },
+    };
     gameData = {
-        player: {
-            class: playerClass,
-            level: 1,
-            exp: 0,
-            nextExp: 100,
-            equipment: { weapon: null, head: null, body: null, legs: null, accessory: null },
-        },
-        party: [],
+        party: [player, null, null, null],
         gold: 200,
-        items: [{ id: 'item001', quantity: 3 }],
+        items: [{ id: 'item001', quantity: 3 }, { id: 'weapon001', quantity: 1 }],
         unlockedFields: ['hearts_plain'],
-        fieldProgress: {
-            'hearts_plain': { monsterCompletion: 0, itemCompletion: 0, mapCompletion: 0, overall: 0, rewardClaimed: false },
-        },
+        fieldProgress: { 'hearts_plain': { monsterCompletion: 0, itemCompletion: 0, mapCompletion: 0, overall: 0, rewardClaimed: false }, },
         monsterLog: {},
     };
     Object.keys(DB.monsters).forEach(id => {
-        if (!id.startsWith('unknown')) {
-            gameData.monsterLog[id] = { discovered: true };
-        }
+        if (!id.startsWith('unknown')) gameData.monsterLog[id] = { discovered: true };
     });
     saveGame();
     document.getElementById('first-time-modal').style.display = 'none';
     renderAll();
     switchScreen('main-menu');
-}
-
-function importGame() {
-    const jsonString = document.getElementById('import-data-textarea').value;
-    const errorSpan = document.getElementById('import-error');
-    errorSpan.textContent = '';
-    try {
-        const importedData = JSON.parse(jsonString);
-        // 簡単なデータ検証
-        if (importedData && importedData.player && importedData.player.class) {
-            gameData = importedData;
-            saveGame();
-            document.getElementById('first-time-modal').style.display = 'none';
-            renderAll();
-            switchScreen('main-menu');
-        } else {
-            throw new Error('無効なデータ形式です。');
-        }
-    } catch (e) {
-        errorSpan.textContent = e.message;
-    }
-}
-
-function resetGameData() {
-    showConfirmation('本当にリセットしますか？', 'すべてのセーブデータが削除されます。', () => {
-        localStorage.removeItem('textRpgGameData');
-        location.reload();
-    });
 }
 
 // --- UI描画関連 ---
@@ -446,9 +437,10 @@ function renderAll() {
 }
 
 function renderStatus() {
-    document.getElementById('player-class').textContent = gameData.player.class;
-    document.getElementById('player-level').textContent = gameData.player.level;
-    document.getElementById('player-exp').textContent = `${gameData.player.exp} / ${gameData.player.nextExp}`;
+    const player = gameData.party[0];
+    document.getElementById('player-name').textContent = player.name;
+    document.getElementById('player-class').textContent = player.class;
+    document.getElementById('player-level').textContent = player.level;
     document.getElementById('player-gold').textContent = gameData.gold;
 }
 
@@ -457,214 +449,311 @@ function renderScreens() {
     renderBlacksmith();
     renderGeneralStore();
     renderExplore();
+    renderPartyScreen();
+    renderItemsScreen('equipment', document.querySelector('#items-screen button')); 
     renderMonsterBook();
     renderExportData();
 }
 
-function switchScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active-screen');
+function switchScreen(screenId) { /* ... (変更なし) ... */ }
+function showTab(tabId, clickedButton) { /* ... (変更なし) ... */ }
+function showConfirmation(title, message, onConfirm) { /* ... (変更なし) ... */ }
+
+// --- 通知機能 ---
+function showNotification(message, type = 'success') { /* ... (変更なし) ... */ }
+
+// --- ショップ機能 (購入) ---
+function openPurchaseModal(itemId) {
+    const item = DB.items[itemId];
+    if (!item) return;
+    if (gameData.gold < item.price) {
+        showNotification("ゴールドが不足しています。", "error");
+        return;
+    }
+    currentPurchase = { itemId, quantity: 1, price: item.price };
+    document.getElementById('purchase-item-name').textContent = item.name;
+    document.getElementById('purchase-item-desc').textContent = item.description;
+    updatePurchaseModal();
+    document.getElementById('purchase-modal').style.display = 'flex';
+}
+
+function updatePurchaseModal() {
+    const input = document.getElementById('purchase-qty-input');
+    currentPurchase.quantity = parseInt(input.value) || 1;
+    if (currentPurchase.quantity < 1) currentPurchase.quantity = 1;
+    if (currentPurchase.quantity > 99) currentPurchase.quantity = 99;
+    input.value = currentPurchase.quantity;
+
+    const totalCost = currentPurchase.price * currentPurchase.quantity;
+    const costElement = document.getElementById('purchase-total-cost');
+    const warningElement = document.getElementById('purchase-warning');
+    
+    costElement.textContent = totalCost;
+    const isOverBudget = totalCost > gameData.gold;
+    
+    costElement.classList.toggle('text-red-500', isOverBudget);
+    warningElement.textContent = isOverBudget ? 'ゴールドが不足しています。' : '';
+    
+    document.getElementById('purchase-player-gold').textContent = gameData.gold;
+    document.getElementById('purchase-confirm-btn').disabled = isOverBudget || totalCost <= 0;
+}
+
+
+function buyItem() {
+    const totalCost = currentPurchase.price * currentPurchase.quantity;
+    if (gameData.gold >= totalCost) {
+        gameData.gold -= totalCost;
+        addItemToInventory(currentPurchase.itemId, currentPurchase.quantity);
+        saveGame();
+        renderAll();
+        showNotification(`${DB.items[currentPurchase.itemId].name} を ${currentPurchase.quantity}個 購入しました。`, "success");
+        document.getElementById('purchase-modal').style.display = 'none';
+    } else {
+        showNotification("ゴールドが不足しています。", "error");
+    }
+}
+
+// --- ショップ機能 (売却) ---
+function openSellModal(itemId) {
+    const item = DB.items[itemId];
+    const itemInInventory = gameData.items.find(i => i.id === itemId);
+    if (!item || !itemInInventory) return;
+
+    const equippedCount = getEquippedCount(itemId);
+    const maxQuantity = itemInInventory.quantity - equippedCount;
+
+    if (maxQuantity <= 0) {
+        showNotification("装備中のため売却できません。", "error");
+        return;
+    }
+
+    currentSell = { itemId, quantity: 1, sellPrice: item.sellPrice, maxQuantity: maxQuantity };
+    document.getElementById('sell-item-name').textContent = item.name;
+    document.getElementById('sell-qty-input').max = currentSell.maxQuantity;
+    updateSellModal();
+    document.getElementById('sell-modal').style.display = 'flex';
+}
+
+function updateSellModal() { /* ... (変更なし) ... */ }
+function sellItem() { /* ... (変更なし) ... */ }
+
+// --- インベントリ操作 ---
+function addItemToInventory(itemId, quantity) { /* ... (変更なし) ... */ }
+function removeItemFromInventory(itemId, quantity) { /* ... (変更なし) ... */ }
+
+function getEquippedCount(itemId) {
+    let count = 0;
+    gameData.party.forEach(member => {
+        if (member) {
+            Object.values(member.equipment).forEach(equippedId => {
+                if (equippedId === itemId) {
+                    count++;
+                }
+            });
+        }
     });
-    const targetScreen = document.getElementById(screenId + '-screen');
-    if (targetScreen) {
-        targetScreen.classList.add('active-screen');
+    return count;
+}
+
+// --- 装備変更機能 ---
+function getSlotType(slot) { /* ... (変更なし) ... */ }
+
+function openEquipmentModal(memberIndex, slot) {
+    currentEquipmentChange = { memberIndex, slot };
+    const member = gameData.party[memberIndex];
+    const slotType = getSlotType(slot);
+    const slotName = { weapon: '武器', head: '頭具', body: '胴具', legs: '脚具', accessory1: '装飾品1', accessory2: '装飾品2' }[slot];
+    
+    document.getElementById('equipment-slot-name').textContent = `${slotName}の変更`;
+    const listContainer = document.getElementById('equipment-list');
+    listContainer.innerHTML = '';
+
+    const availableItems = gameData.items.filter(item => DB.items[item.id]?.type === slotType);
+    
+    if (availableItems.length === 0) {
+        listContainer.innerHTML = '<p class="text-gray-400">装備できるアイテムがありません。</p>';
+    } else {
+        availableItems.forEach(itemStack => {
+            const item = DB.items[itemStack.id];
+            const equippedCount = getEquippedCount(itemStack.id);
+            
+            const isCurrentlyEquippedBySelf = member.equipment[slot] === itemStack.id;
+            const equippedByOthers = isCurrentlyEquippedBySelf ? equippedCount - 1 : equippedCount;
+            const canEquip = itemStack.quantity > equippedByOthers;
+
+            let equippedMark = '';
+            if (equippedCount > 0) {
+                equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
+            }
+
+            const element = document.createElement('div');
+            element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
+            element.innerHTML = `
+                <div>
+                    <p class="font-semibold flex items-baseline">${item.name}${equippedMark}</p>
+                    <p class="text-sm text-gray-400">${Object.entries(item.stats).map(([key, val]) => `${key.toUpperCase()}:+${val}`).join(', ')}</p>
+                </div>
+                <button class="rpg-button px-4 py-2 rounded" onclick="equipItem('${itemStack.id}')" ${!canEquip ? 'disabled' : ''}>装備</button>
+            `;
+            listContainer.appendChild(element);
+        });
+    }
+
+    if (member.equipment[slot]) {
+        const unequipButton = document.createElement('button');
+        unequipButton.className = 'rpg-button w-full mt-4 py-2 rounded bg-red-800 hover:bg-red-700';
+        unequipButton.textContent = 'この装備を外す';
+        unequipButton.onclick = () => equipItem(null);
+        listContainer.appendChild(unequipButton);
+    }
+
+    document.getElementById('equipment-modal').style.display = 'flex';
+}
+
+function equipItem(itemId) {
+    const { memberIndex, slot } = currentEquipmentChange;
+    const member = gameData.party[memberIndex];
+    if (!member) return;
+
+    if (itemId) {
+        const itemInInventory = gameData.items.find(i => i.id === itemId);
+        const equippedCount = getEquippedCount(itemId);
+        const isCurrentlyEquippedBySelf = member.equipment[slot] === itemId;
+        const equippedByOthers = isCurrentlyEquippedBySelf ? equippedCount - 1 : equippedCount;
+
+        if (!itemInInventory || itemInInventory.quantity <= equippedByOthers) {
+             showNotification("装備できるアイテムがありません。", "error");
+             return;
+        }
+    }
+    
+    member.equipment[slot] = itemId;
+    saveGame();
+    renderAll();
+    document.getElementById('equipment-modal').style.display = 'none';
+}
+
+
+// --- 名前変更機能 ---
+function openNameChangeModal() {
+    document.getElementById('name-change-input').value = gameData.party[0].name;
+    document.getElementById('name-change-modal').style.display = 'flex';
+}
+
+function changeName() {
+    const newName = document.getElementById('name-change-input').value.trim();
+    if (newName) {
+        gameData.party[0].name = newName;
+        saveGame();
+        renderAll();
+        showNotification("名前を変更しました。", "success");
+        document.getElementById('name-change-modal').style.display = 'none';
+    } else {
+        showNotification("名前は空にできません。", "error");
     }
 }
 
-function showTab(tabId, clickedButton) {
-    const tabContainer = clickedButton.parentElement.nextElementSibling;
-    while (!tabContainer.classList.contains('guild-tab') && !tabContainer.classList.contains('blacksmith-tab') && !tabContainer.classList.contains('store-tab')) {
-        tabContainer = tabContainer.nextElementSibling;
-    }
-    
-    const tabPrefix = tabId.substring(0, tabId.indexOf('-tab-'));
-    
-    // 同じコンテナ内のタブボタンのスタイルをリセット
-    clickedButton.parentElement.querySelectorAll('button').forEach(btn => {
-        btn.classList.add('opacity-60');
-    });
-    // クリックされたボタンのスタイルをアクティブに
-    clickedButton.classList.remove('opacity-60');
+// --- 各画面の描画 ---
+function renderShopList(containerId, conditionList) { /* ... (変更なし) ... */ }
 
-    // 同じコンテナ内のタブコンテンツを非表示に
-    let currentElement = clickedButton.parentElement.nextElementSibling;
-    while(currentElement && currentElement.classList.contains(`${tabPrefix}-tab`)){
-        currentElement.style.display = 'none';
-        currentElement = currentElement.nextElementSibling;
-    }
-    
-    // 対象のタブコンテンツを表示
-    document.getElementById(tabId).style.display = 'block';
+function renderBlacksmith() {
+    document.getElementById('blacksmith-gold').textContent = gameData.gold;
+    renderShopList('blacksmith-purchase-list', DB.blacksmithPurchaseConditions);
+    document.getElementById('blacksmith-craft-list').innerHTML = '';
 }
 
-
-function showConfirmation(title, message, onConfirm) {
-    const modal = document.getElementById('confirmation-modal');
-    document.getElementById('confirmation-title').textContent = title;
-    document.getElementById('confirmation-message').textContent = message;
-    modal.style.display = 'flex';
-
-    const okBtn = document.getElementById('confirm-ok-btn');
-    const cancelBtn = document.getElementById('confirm-cancel-btn');
-
-    const okHandler = () => {
-        onConfirm();
-        cleanup();
-    };
-
-    const cancelHandler = () => {
-        cleanup();
-    };
-    
-    function cleanup() {
-        modal.style.display = 'none';
-        okBtn.removeEventListener('click', okHandler);
-        cancelBtn.removeEventListener('click', cancelHandler);
-    }
-
-    okBtn.addEventListener('click', okHandler, { once: true });
-    cancelBtn.addEventListener('click', cancelHandler, { once: true });
+function renderGeneralStore() {
+    document.getElementById('general-store-gold').textContent = gameData.gold;
+    renderShopList('store-purchase-list', DB.generalStorePurchaseConditions);
+    renderSellList();
 }
 
-
-// 各画面の描画関数
-function renderGuild() {
-    const container = document.getElementById('field-progress-container');
+function renderSellList() {
+    const container = document.getElementById('store-sell-list');
     container.innerHTML = '';
-    gameData.unlockedFields.forEach(fieldId => {
-        const fieldInfo = DB.fields[fieldId];
-        const progress = gameData.fieldProgress[fieldId];
-        if (!fieldInfo || !progress) return;
+    
+    const sellableItems = gameData.items.filter(itemStack => DB.items[itemStack.id]?.sellPrice > 0);
 
-        progress.overall = Math.floor((progress.monsterCompletion + progress.itemCompletion + progress.mapCompletion) / 3);
+    if (sellableItems.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 col-span-full text-center">売却できるアイテムはありません。</p>';
+        return;
+    }
 
+    sellableItems.forEach(itemStack => {
+        const item = DB.items[itemStack.id];
+        const equippedCount = getEquippedCount(itemStack.id);
+        const sellableQuantity = itemStack.quantity - equippedCount;
+        
         const element = document.createElement('div');
-        element.className = 'bg-gray-800 p-4 rounded';
+        element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
+        
+        let equippedMark = '';
+        if (equippedCount > 0) {
+            equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
+        }
+
         element.innerHTML = `
-            <h4 class="text-lg font-bold">${fieldInfo.name}</h4>
-            <div class="space-y-1 mt-2">
-                <p>総合達成度: ${progress.overall}%</p>
-                <p class="text-sm text-gray-400">図鑑: ${progress.monsterCompletion}% | アイテム: ${progress.itemCompletion}% | マップ: ${progress.mapCompletion}%</p>
+            <div>
+                <p class="font-semibold flex items-baseline">${item.name}${equippedMark} <span class="text-gray-400 ml-2">(x${itemStack.quantity})</span></p>
+                <p class="text-sm text-gray-400">売値: ${item.sellPrice} G</p>
             </div>
-            <button class="rpg-button px-4 py-1 mt-2 rounded ${progress.overall === 100 && !progress.rewardClaimed ? '' : 'opacity-50 cursor-not-allowed'}" ${progress.overall === 100 && !progress.rewardClaimed ? '' : 'disabled'}>
-                ${progress.rewardClaimed ? '報酬受取済' : '100%報酬'}
-            </button>
+            <button class="rpg-button px-4 py-2 rounded" onclick="openSellModal('${itemStack.id}')" ${sellableQuantity <= 0 ? 'disabled' : ''}>売却</button>
         `;
         container.appendChild(element);
     });
 }
 
-function renderBlacksmith() {
-    const purchaseContainer = document.getElementById('blacksmith-purchase-list');
-    purchaseContainer.innerHTML = '';
-    DB.blacksmithPurchaseConditions.forEach(cond => {
-        if (cond.condition(gameData)) {
-            const item = DB.items[cond.itemId];
-            const element = document.createElement('div');
-            element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
-            element.innerHTML = `
-                <div>
-                    <p class="font-semibold">${item.name}</p>
-                    <p class="text-sm text-gray-400">${item.description}</p>
-                </div>
-                <button class="rpg-button px-4 py-2 rounded">${item.price} G</button>
-            `;
-            purchaseContainer.appendChild(element);
-        }
-    });
 
-    const craftContainer = document.getElementById('blacksmith-craft-list');
-    craftContainer.innerHTML = '';
-    DB.blacksmithCraftRecipes.forEach(recipe => {
-        if (recipe.condition(gameData)) {
-            const item = DB.items[recipe.itemId];
-            const materialsHtml = recipe.materials.map(mat => {
-                const matItem = DB.items[mat.id];
-                const userMat = gameData.items.find(i => i.id === mat.id) || { quantity: 0 };
-                const color = userMat.quantity >= mat.quantity ? 'text-green-400' : 'text-red-400';
-                return `<span class="${color}">${matItem.name} (${userMat.quantity}/${mat.quantity})</span>`;
-            }).join(', ');
+function renderPartyScreen() { /* ... (変更なし) ... */ }
+function renderPartyMemberDetails(index) { /* ... (変更なし) ... */ }
 
-            const element = document.createElement('div');
-            element.className = 'bg-gray-700 p-3 rounded';
-            element.innerHTML = `
-                <p class="font-semibold">${item.name}</p>
-                <p class="text-sm text-gray-400">必要素材: ${materialsHtml}</p>
-                <button class="rpg-button px-4 py-2 rounded mt-2">作成</button>
-            `;
-            craftContainer.appendChild(element);
-        }
-    });
-}
+function renderItemsScreen(filterType, clickedButton = null) {
+    if (clickedButton) {
+        clickedButton.parentElement.querySelectorAll('button').forEach(btn => btn.classList.add('opacity-60'));
+        clickedButton.classList.remove('opacity-60');
+    }
 
-function renderGeneralStore() {
-    const purchaseContainer = document.getElementById('store-purchase-list');
-    purchaseContainer.innerHTML = '';
-    DB.generalStorePurchaseConditions.forEach(cond => {
-        if (cond.condition(gameData)) {
-            const item = DB.items[cond.itemId];
-            const element = document.createElement('div');
-            element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
-            element.innerHTML = `
-                <div>
-                    <p class="font-semibold">${item.name}</p>
-                    <p class="text-sm text-gray-400">${item.description}</p>
-                </div>
-                <button class="rpg-button px-4 py-2 rounded">${item.price} G</button>
-            `;
-            purchaseContainer.appendChild(element);
-        }
-    });
-    const sellContainer = document.getElementById('store-sell-list');
-    sellContainer.innerHTML = '現在、売却できるアイテムはありません。';
-}
-
-function renderExplore() {
-    const container = document.getElementById('explore-field-list');
+    const container = document.getElementById('inventory-list');
     container.innerHTML = '';
-    gameData.unlockedFields.forEach(fieldId => {
-        const fieldInfo = DB.fields[fieldId];
-        if (!fieldInfo) return;
-        const element = document.createElement('button');
-        element.className = 'p-6 rounded rpg-button text-xl text-center';
-        element.textContent = fieldInfo.name;
-        container.appendChild(element);
-    });
-}
+    
+    const equipmentTypes = ['weapon', 'head', 'body', 'legs', 'accessory'];
+    let filteredItems;
+    if (filterType === 'equipment') {
+        filteredItems = gameData.items.filter(i => equipmentTypes.includes(DB.items[i.id].type));
+    } else {
+        filteredItems = gameData.items.filter(i => !equipmentTypes.includes(DB.items[i.id].type));
+    }
 
-function renderMonsterBook() {
-    const container = document.getElementById('monster-list');
-    container.innerHTML = '';
-    Object.entries(DB.monsters).forEach(([id, monster]) => {
-        const isDiscovered = gameData.monsterLog[id]?.discovered || false;
+    if (filteredItems.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 col-span-full text-center">該当するアイテムはありません。</p>';
+        return;
+    }
+
+    filteredItems.forEach(itemStack => {
+        const item = DB.items[itemStack.id];
+        const equippedCount = getEquippedCount(itemStack.id);
+        let equippedMark = '';
+        if (equippedCount > 0) {
+            equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
+        }
+
         const element = document.createElement('div');
-        element.className = `p-4 rounded ${isDiscovered ? 'bg-gray-700' : 'bg-gray-800 border border-dashed border-gray-600'}`;
-        if (isDiscovered) {
-            element.innerHTML = `
-                <h3 class="text-lg font-bold text-yellow-300">No.${monster.no} ${monster.name}</h3>
-                <p class="text-sm">種族: ${monster.race}</p>
-                <p class="text-sm">生息地: ${monster.habitat}</p>
-                <p class="mt-2 text-gray-300 text-sm italic">"${monster.story}"</p>
-            `;
-        } else {
-            element.innerHTML = `
-                <h3 class="text-lg font-bold text-gray-500">No.${monster.no} ？？？</h3>
-                <p class="text-sm text-gray-500">種族: ？？？</p>
-                <p class="text-sm text-gray-500">生息地: ？？？</p>
-            `;
-        }
+        element.className = 'bg-gray-700 p-3 rounded';
+        element.innerHTML = `
+            <div class="flex justify-between items-start">
+                <div>
+                    <p class="font-semibold flex items-baseline">${item.name}${equippedMark}</p>
+                    <p class="text-sm text-gray-400">${item.description}</p>
+                </div>
+                <p class="text-lg font-bold">x${itemStack.quantity}</p>
+            </div>
+        `;
         container.appendChild(element);
     });
 }
 
-function renderExportData() {
-    const textarea = document.getElementById('export-data-textarea');
-    textarea.value = JSON.stringify(gameData, null, 2);
-}
-
-// --- イベントリスナー ---
+// --- イベントリスナー設定 ---
 function setupEventListeners() {
-    // 初回起動
     document.getElementById('select-swordsman').addEventListener('click', () => initNewGame('剣士'));
     document.getElementById('select-mage').addEventListener('click', () => initNewGame('魔導士'));
     document.getElementById('show-import-btn').addEventListener('click', () => {
@@ -676,28 +765,65 @@ function setupEventListeners() {
         document.getElementById('import-game-section').style.display = 'none';
     });
     document.getElementById('import-data-btn').addEventListener('click', importGame);
-
-    // 画面切り替え
     document.querySelectorAll('button[data-screen]').forEach(button => {
-        button.addEventListener('click', () => {
-            switchScreen(button.dataset.screen);
-        });
+        button.addEventListener('click', () => switchScreen(button.dataset.screen));
     });
-    
-    // データコピー
     document.getElementById('copy-data-button').addEventListener('click', () => {
         const textarea = document.getElementById('export-data-textarea');
         textarea.select();
         document.execCommand('copy');
-        const feedback = document.getElementById('copy-feedback');
-        feedback.style.opacity = '1';
-        setTimeout(() => { feedback.style.opacity = '0'; }, 2000);
+        showNotification("セーブデータをコピーしました。", "success");
     });
-
-    // データリセット
     document.getElementById('reset-data-btn').addEventListener('click', resetGameData);
+    document.getElementById('purchase-qty-minus').addEventListener('click', () => { const i = document.getElementById('purchase-qty-input'); i.value = Math.max(1, parseInt(i.value) - 1); updatePurchaseModal(); });
+    document.getElementById('purchase-qty-plus').addEventListener('click', () => { const i = document.getElementById('purchase-qty-input'); i.value = Math.min(99, parseInt(i.value) + 1); updatePurchaseModal(); });
+    document.getElementById('purchase-qty-input').addEventListener('change', updatePurchaseModal);
+    document.getElementById('purchase-cancel-btn').addEventListener('click', () => { document.getElementById('purchase-modal').style.display = 'none'; });
+    document.getElementById('purchase-confirm-btn').addEventListener('click', buyItem);
+    document.getElementById('equipment-cancel-btn').addEventListener('click', () => { document.getElementById('equipment-modal').style.display = 'none'; });
+    document.getElementById('sell-qty-minus').addEventListener('click', () => { const i = document.getElementById('sell-qty-input'); i.value = Math.max(1, parseInt(i.value) - 1); updateSellModal(); });
+    document.getElementById('sell-qty-plus').addEventListener('click', () => { const i = document.getElementById('sell-qty-input'); i.value = Math.min(currentSell.maxQuantity, parseInt(i.value) + 1); updateSellModal(); });
+    document.getElementById('sell-qty-input').addEventListener('change', updateSellModal);
+    document.getElementById('sell-cancel-btn').addEventListener('click', () => { document.getElementById('sell-modal').style.display = 'none'; });
+    document.getElementById('sell-confirm-btn').addEventListener('click', sellItem);
+    document.getElementById('name-change-btn').addEventListener('click', openNameChangeModal);
+    document.getElementById('name-change-cancel-btn').addEventListener('click', () => { document.getElementById('name-change-modal').style.display = 'none'; });
+    document.getElementById('name-change-confirm-btn').addEventListener('click', changeName);
 }
 
+// NOTE: 省略した関数群
+generateStats=(playerClass)=>{const rand=(min,max)=>Math.floor(Math.random()*(max-min+1))+min;let stats={Li:rand(8,12),St:rand(8,12),In:rand(8,12),Pa:rand(8,12),Ag:rand(8,12)};if(playerClass==='剣士'){stats.St=rand(12,16);stats.In=rand(3,6)}else if(playerClass==='魔導士'){stats.In=rand(12,16);stats.St=rand(3,6)}return stats};
+switchScreen=(screenId)=>{document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active-screen'));document.getElementById(screenId+'-screen')?.classList.add('active-screen')};
+showTab=(tabId,clickedButton)=>{const tabPrefix=tabId.substring(0,tabId.indexOf('-tab-'));clickedButton.parentElement.querySelectorAll('button').forEach(btn=>btn.classList.add('opacity-60'));clickedButton.classList.remove('opacity-60');let currentElement=clickedButton.parentElement.nextElementSibling;while(currentElement&&currentElement.classList.contains(`${tabPrefix}-tab`)){currentElement.style.display='none';currentElement=currentElement.nextElementSibling}
+document.getElementById(tabId).style.display='block'};
+showConfirmation=(title,message,onConfirm)=>{const modal=document.getElementById('confirmation-modal');document.getElementById('confirmation-title').textContent=title;document.getElementById('confirmation-message').textContent=message;modal.style.display='flex';const okBtn=document.getElementById('confirm-ok-btn');const cancelBtn=document.getElementById('confirm-cancel-btn');const cleanup=()=>{modal.style.display='none';okBtn.removeEventListener('click',okHandler);cancelBtn.removeEventListener('click',cancelHandler)};const okHandler=()=>{onConfirm();cleanup()};const cancelHandler=()=>cleanup();okBtn.addEventListener('click',okHandler,{once:true});cancelBtn.addEventListener('click',cancelHandler,{once:true})};
+showNotification=(message,type='success')=>{const popup=document.getElementById('notification-popup');popup.textContent=message;popup.className=type;popup.classList.add('show');setTimeout(()=>{popup.classList.remove('show')},2500)};
+updateSellModal=()=>{const input=document.getElementById('sell-qty-input');currentSell.quantity=parseInt(input.value)||1;if(currentSell.quantity<1)currentSell.quantity=1;if(currentSell.quantity>currentSell.maxQuantity)currentSell.quantity=currentSell.maxQuantity;input.value=currentSell.quantity;document.getElementById('sell-total-price').textContent=currentSell.sellPrice*currentSell.quantity};
+sellItem=()=>{removeItemFromInventory(currentSell.itemId,currentSell.quantity);gameData.gold+=currentSell.sellPrice*currentSell.quantity;saveGame();renderAll();showNotification(`${DB.items[currentSell.itemId].name} を ${currentSell.quantity}個 売却しました。`,"success");document.getElementById('sell-modal').style.display='none'};
+addItemToInventory=(itemId,quantity)=>{const existingItem=gameData.items.find(i=>i.id===itemId);if(existingItem){existingItem.quantity+=quantity}else{gameData.items.push({id:itemId,quantity:quantity})}};
+removeItemFromInventory=(itemId,quantity)=>{const itemIndex=gameData.items.findIndex(i=>i.id===itemId);if(itemIndex>-1){gameData.items[itemIndex].quantity-=quantity;if(gameData.items[itemIndex].quantity<=0){gameData.items.splice(itemIndex,1)}}};
+getSlotType=(slot)=>{if(slot.startsWith('accessory'))return'accessory';return slot};
+renderShopList=(containerId,conditionList)=>{const container=document.getElementById(containerId);container.innerHTML='';conditionList.forEach(cond=>{if(cond.condition(gameData)){const item=DB.items[cond.itemId];const element=document.createElement('div');element.className='bg-gray-700 p-3 rounded flex justify-between items-center';element.innerHTML=`
+<div><p class="font-semibold">${item.name}</p><p class="text-sm text-gray-400">${item.description}</p></div>
+<button class="rpg-button px-4 py-2 rounded" onclick="openPurchaseModal('${cond.itemId}')">${item.price} G</button>`;container.appendChild(element)}})};
+renderPartyScreen=()=>{const listContainer=document.getElementById('party-member-list');listContainer.innerHTML='';gameData.party.forEach((member,index)=>{const card=document.createElement('button');card.className='party-member-card rpg-button p-2 rounded w-full md:w-24 text-left';card.onclick=()=>renderPartyMemberDetails(index);if(member){card.innerHTML=`<p class="font-bold">${member.name}</p><p class="text-sm">${member.class} Lv.${member.level}</p>`}else{card.innerHTML='<p class="text-gray-400">空き</p>'}
+listContainer.appendChild(card)});renderPartyMemberDetails(0)};
+renderPartyMemberDetails=(index)=>{document.querySelectorAll('.party-member-card').forEach((card,i)=>card.classList.toggle('active',i===index));const detailsContainer=document.getElementById('party-member-details');const member=gameData.party[index];if(!member){detailsContainer.innerHTML='<p class="text-gray-400 text-center">このスロットにメンバーはいません。</p>';return}
+const totalStats={...member.baseStats};Object.values(member.equipment).forEach(itemId=>{if(itemId&&DB.items[itemId]?.stats){Object.entries(DB.items[itemId].stats).forEach(([stat,value])=>{totalStats[stat]=(totalStats[stat]||0)+value})}});const statRow=(name,key)=>{const base=member.baseStats[key]||0;const equipBonus=totalStats[key]-base;return`<div class="grid grid-cols-3"><span>${name}</span><span class="text-right">${totalStats[key]}</span><span class="text-right text-green-400">${equipBonus>0?`(+${equipBonus})`:''}</span></div>`};const equipSlot=(name,key)=>{const itemId=member.equipment[key];const itemName=itemId?DB.items[itemId].name:'---';return`<button class="w-full text-left p-1 hover:bg-gray-700 rounded" onclick="openEquipmentModal(${index},'${key}')"><div class="flex justify-between"><span class="text-gray-400">${name}:</span> <span>${itemName}</span></div></button>`};detailsContainer.innerHTML=`
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><h3 class="text-xl font-bold mb-2">${member.name} - ${member.class} Lv.${member.level}</h3><div class="space-y-1 bg-gray-800 p-3 rounded">${statRow('生命 (Li)','Li')}${statRow('筋力 (St)','St')}${statRow('知性 (In)','In')}${statRow('忍耐 (Pa)','Pa')}${statRow('敏捷 (Ag)','Ag')}</div></div>
+<div><h3 class="text-xl font-bold mb-2">装備</h3><div class="space-y-1 bg-gray-800 p-3 rounded">${equipSlot('武器','weapon')}${equipSlot('頭具','head')}${equipSlot('胴具','body')}${equipSlot('脚具','legs')}${equipSlot('装飾品1','accessory1')}${equipSlot('装飾品2','accessory2')}</div></div></div>`};
+const importGame=()=>{const jsonString=document.getElementById('import-data-textarea').value;const errorSpan=document.getElementById('import-error');errorSpan.textContent='';try{const importedData=JSON.parse(jsonString);if(importedData&&importedData.party&&importedData.party[0].class){gameData=importedData;saveGame();document.getElementById('first-time-modal').style.display='none';renderAll();switchScreen('main-menu')}else{throw new Error('無効なデータ形式です。')}}catch(e){errorSpan.textContent=e.message}};
+const resetGameData=()=>{showConfirmation('本当にリセットしますか？','すべてのセーブデータが削除されます。',()=>{localStorage.removeItem('textRpgGameData');location.reload()})};
+const originalRenderGuild=()=>{const container=document.getElementById('field-progress-container');container.innerHTML='';if(!gameData.unlockedFields)return;gameData.unlockedFields.forEach(fieldId=>{const fieldInfo=DB.fields[fieldId];const progress=gameData.fieldProgress[fieldId];if(!fieldInfo||!progress)return;progress.overall=Math.floor((progress.monsterCompletion+progress.itemCompletion+progress.mapCompletion)/3);const element=document.createElement('div');element.className='bg-gray-800 p-4 rounded';element.innerHTML=`
+<h4 class="text-lg font-bold">${fieldInfo.name}</h4>
+<div class="space-y-1 mt-2"><p>総合達成度: ${progress.overall}%</p><p class="text-sm text-gray-400">図鑑: ${progress.monsterCompletion}% | アイテム: ${progress.itemCompletion}% | マップ: ${progress.mapCompletion}%</p></div>
+<button class="rpg-button px-4 py-1 mt-2 rounded ${progress.overall===100&&!progress.rewardClaimed?'':'opacity-50 cursor-not-allowed'}" ${progress.overall===100&&!progress.rewardClaimed?'':'disabled'}>${progress.rewardClaimed?'報酬受取済':'100%報酬'}</button>`;container.appendChild(element)})};renderGuild=originalRenderGuild;
+const originalRenderExplore=()=>{const container=document.getElementById('explore-field-list');container.innerHTML='';if(!gameData.unlockedFields)return;gameData.unlockedFields.forEach(fieldId=>{const fieldInfo=DB.fields[fieldId];if(!fieldInfo)return;const element=document.createElement('button');element.className='p-6 rounded rpg-button text-xl text-center';element.textContent=fieldInfo.name;container.appendChild(element)})};renderExplore=originalRenderExplore;
+const originalRenderMonsterBook=()=>{const container=document.getElementById('monster-list');container.innerHTML='';Object.entries(DB.monsters).forEach(([id,monster])=>{const isDiscovered=gameData.monsterLog[id]?.discovered||false;const element=document.createElement('div');element.className=`p-4 rounded ${isDiscovered?'bg-gray-700':'bg-gray-800 border border-dashed border-gray-600'}`;if(isDiscovered){element.innerHTML=`
+<h3 class="text-lg font-bold text-yellow-300">No.${monster.no} ${monster.name}</h3><p class="text-sm">種族: ${monster.race}</p><p class="text-sm">生息地: ${monster.habitat}</p><p class="mt-2 text-gray-300 text-sm italic">"${monster.story}"</p>`}else{element.innerHTML=`
+<h3 class="text-lg font-bold text-gray-500">No.${monster.no} ？？？</h3><p class="text-sm text-gray-500">種族: ？？？</p><p class="text-sm text-gray-500">生息地: ？？？</p>`}
+container.appendChild(element)})};renderMonsterBook=originalRenderMonsterBook;
+const originalRenderExportData=()=>{const textarea=document.getElementById('export-data-textarea');textarea.value=JSON.stringify(gameData,null,2)};renderExportData=originalRenderExportData;
 </script>
 </body>
 </html>
