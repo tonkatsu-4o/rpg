@@ -2,828 +2,922 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>テキストベースRPG</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>マルチプレイトランプゲーム</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', 'Noto Serif JP', sans-serif; overscroll-behavior: none; }
-        .rpg-box { border: 2px solid #4a5568; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
-        .rpg-button { background-color: #2d3748; border: 1px solid #4a5568; transition: all 0.2s ease-in-out; }
-        .rpg-button:hover:not(:disabled) { background-color: #4a5568; border-color: #718096; transform: translateY(-2px); }
-        .rpg-button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .screen { display: none; animation: fadeIn 0.5s; }
-        .active-screen { display: block; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #2d3748; }
-        ::-webkit-scrollbar-thumb { background: #718096; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
-        .party-member-card.active { background-color: #4a5568; border-color: #a0aec0; }
-        #notification-popup { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 8px; color: white; z-index: 100; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s, transform 0.3s; }
-        #notification-popup.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
-        #notification-popup.error { background-color: #c53030; }
-        #notification-popup.success { background-color: #2f855a; }
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            overscroll-behavior: none; /* スワイプでのページの戻る/進むを無効化 */
+            touch-action: manipulation; /* ダブルタップズームを無効化 */
+        }
+        .screen { display: none; }
+        .screen.active { display: flex; flex-direction: column; }
+        
+        /* カードのスタイル */
+        .card {
+            width: 70px;
+            height: 98px;
+            border-radius: 6px;
+            background-color: white;
+            border: 1px solid #B0B0B0;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            font-weight: bold;
+            position: relative;
+            user-select: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card:hover { transform: translateY(-5px); box-shadow: 4px 8px 10px rgba(0,0,0,0.2); }
+        .card.red { color: #D92D20; }
+        .card.black { color: #101828; }
+        .card .rank { position: absolute; top: 4px; left: 6px; font-size: 14px; }
+        .card .suit { font-size: 28px; }
+        .card .suit-sm { position: absolute; bottom: 4px; right: 6px; font-size: 14px; transform: rotate(180deg); }
+        .card.back {
+            background-image:
+                linear-gradient(45deg, #4477ff 25%, transparent 25%),
+                linear-gradient(-45deg, #4477ff 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #4477ff 75%),
+                linear-gradient(-45deg, transparent 75%, #4477ff 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            background-color: #3366ee;
+        }
+        .card.selected, .card.hovered { transform: translateY(-15px); border: 2px solid #3b82f6; }
+        .card.disabled { opacity: 0.5; cursor: not-allowed; }
+        .card.matched { visibility: hidden; }
+        
+        /* 手札のレイアウト */
+        #my-hand-area-cards {
+            display: flex;
+            flex-wrap: nowrap; /* スマホで手札が折り返さないように */
+            overflow-x: auto; /* 横スクロールを可能に */
+            justify-content: flex-start; /* 左詰め */
+            align-items: center;
+            padding: 10px;
+            -webkit-overflow-scrolling: touch; /* iOSでの慣性スクロール */
+        }
+        #my-hand-area-cards .card {
+            flex-shrink: 0; /* カードが縮まないように */
+            margin-left: -30px;
+        }
+        #my-hand-area-cards .card:first-child { margin-left: 0; }
+
+        .opponent-card-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .opponent-card-container.interactive .card {
+            margin: 0 -15px 0 0 !important;
+        }
+        
+        #table-area.grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(65px, 1fr));
+            gap: 8px;
+            padding: 8px;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
+        #table-area.grid-layout .card {
+            width: 100%;
+            height: 80px; /* Adjust height for grid */
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200">
+<body class="bg-gray-100 antialiased">
 
-    <!-- 通知ポップアップ -->
-    <div id="notification-popup"></div>
+    <div id="app-container" class="max-w-md mx-auto min-h-screen bg-white shadow-lg">
 
-    <!-- 名前変更モーダル -->
-    <div id="name-change-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
-            <h2 class="text-2xl font-bold mb-4 text-yellow-400">名前の変更</h2>
-            <p class="mb-4">新しい名前を入力してください。</p>
-            <input id="name-change-input" type="text" maxlength="10" class="w-full bg-gray-900 text-white p-2 rounded border border-gray-600" placeholder="10文字以内">
-            <div class="flex justify-end gap-4 mt-6">
-                <button id="name-change-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
-                <button id="name-change-confirm-btn" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg">決定</button>
+        <!-- ===== ホーム画面 ===== -->
+        <div id="home-screen" class="screen active p-6">
+            <header class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">トランプゲーム</h1>
+                <p class="text-gray-500 mt-2">遊びたいゲームを選んでください</p>
+            </header>
+            <div class="space-y-4">
+                <button data-game="daifugo" class="game-select-btn w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">大富豪</button>
+                <button data-game="babanuki" class="game-select-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">ばば抜き</button>
+                <button data-game="shinkeisuijaku" class="game-select-btn w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">神経衰弱</button>
+                <button data-game="doubt" class="game-select-btn w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">ダウト</button>
             </div>
-        </div>
-    </div>
-    
-    <!-- 売却モーダル -->
-    <div id="sell-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
-            <h2 id="sell-item-name" class="text-2xl font-bold mb-2 text-yellow-400"></h2>
-            <p class="mb-4">売却する数を選択してください。</p>
-            <div class="flex items-center justify-center gap-4 my-6">
-                <button id="sell-qty-minus" class="rpg-button w-10 h-10 text-2xl rounded-full">-</button>
-                <input id="sell-qty-input" type="number" value="1" min="1" class="w-20 h-12 text-center text-2xl bg-gray-900 border border-gray-600 rounded">
-                <button id="sell-qty-plus" class="rpg-button w-10 h-10 text-2xl rounded-full">+</button>
-            </div>
-            <div class="text-center text-xl mb-6">
-                <p>売却価格: <span id="sell-total-price" class="font-bold text-yellow-400"></span> G</p>
-            </div>
-            <div class="flex justify-end gap-4">
-                <button id="sell-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
-                <button id="sell-confirm-btn" class="bg-red-700 hover:bg-red-600 text-white px-6 py-2 rounded-lg">売却する</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 装備変更モーダル -->
-    <div id="equipment-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-6 rounded-lg shadow-xl max-w-lg w-full rpg-box">
-            <h2 id="equipment-slot-name" class="text-2xl font-bold mb-4 text-yellow-400"></h2>
-            <div id="equipment-list" class="max-h-80 overflow-y-auto space-y-2 pr-2"></div>
-            <div class="text-right mt-6">
-                <button id="equipment-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">閉じる</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 購入モーダル -->
-    <div id="purchase-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
-            <h2 id="purchase-item-name" class="text-2xl font-bold mb-2 text-yellow-400"></h2>
-            <p id="purchase-item-desc" class="mb-4 text-gray-400"></p>
-            <div class="flex items-center justify-center gap-4 my-6">
-                <button id="purchase-qty-minus" class="rpg-button w-10 h-10 text-2xl rounded-full">-</button>
-                <input id="purchase-qty-input" type="number" value="1" min="1" max="99" class="w-20 h-12 text-center text-2xl bg-gray-900 border border-gray-600 rounded">
-                <button id="purchase-qty-plus" class="rpg-button w-10 h-10 text-2xl rounded-full">+</button>
-            </div>
-            <div class="text-center text-xl mb-6">
-                <p>合計金額: <span id="purchase-total-cost" class="font-bold text-yellow-400"></span> G</p>
-                <p class="text-sm">所持金: <span id="purchase-player-gold" class="text-gray-400"></span> G</p>
-                <p id="purchase-warning" class="text-red-500 text-sm min-h-[1.25rem] mt-1"></p>
-            </div>
-            <div class="flex justify-end gap-4">
-                <button id="purchase-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
-                <button id="purchase-confirm-btn" class="bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg">購入する</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 確認モーダル -->
-    <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-md w-full rpg-box">
-            <h2 id="confirmation-title" class="text-xl font-bold mb-4 text-yellow-400">確認</h2>
-            <p id="confirmation-message" class="mb-6">本当に実行しますか？この操作は取り消せません。</p>
-            <div class="flex justify-end gap-4">
-                <button id="confirm-cancel-btn" class="rpg-button px-6 py-2 rounded-lg">キャンセル</button>
-                <button id="confirm-ok-btn" class="bg-red-700 hover:bg-red-600 text-white px-6 py-2 rounded-lg">実行</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 初回起動モーダル -->
-    <div id="first-time-modal" class="fixed inset-0 bg-black bg-opacity-75 z-50 items-center justify-center hidden">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-xl max-w-lg w-full rpg-box">
-            <div id="new-game-selection">
-                <h2 class="text-2xl font-bold mb-4 text-yellow-400">王国より</h2>
-                <p class="mb-4">ようこそ、新たなる探索者よ。まずは君の名を教えてくれ。</p>
-                <input id="player-name-input" type="text" maxlength="10" class="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 mb-6" placeholder="あなたの名前 (未入力で「冒険者」)">
-                <p class="mb-4 font-semibold">次に、汝の職業を選びたまえ：</p>
-                <div class="flex gap-4 mb-6">
-                    <button id="select-swordsman" class="rpg-button flex-1 p-4 rounded-lg text-lg">剣士</button>
-                    <button id="select-mage" class="rpg-button flex-1 p-4 rounded-lg text-lg">魔導士</button>
-                </div>
-                <div class="text-center">
-                    <button id="show-import-btn" class="text-cyan-400 hover:underline">セーブデータがありますか？</button>
-                </div>
-            </div>
-            <div id="import-game-section" class="hidden">
-                 <h2 class="text-2xl font-bold mb-4 text-yellow-400">データインポート</h2>
-                 <p class="mb-4">エクスポートしたセーブデータを以下に貼り付けてください。</p>
-                 <textarea id="import-data-textarea" class="w-full h-40 bg-gray-900 text-white p-2 rounded border border-gray-600"></textarea>
-                 <div class="flex justify-between items-center mt-4">
-                    <button id="back-to-new-game-btn" class="text-cyan-400 hover:underline">戻る</button>
-                    <div>
-                        <span id="import-error" class="text-red-400 mr-4"></span>
-                        <button id="import-data-btn" class="rpg-button px-6 py-2 rounded-lg">インポート</button>
-                    </div>
-                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- メインコンテンツ -->
-    <div class="container mx-auto p-4 max-w-4xl">
-        
-        <!-- メインメニュー画面 -->
-        <div id="main-menu-screen" class="screen active-screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <h1 class="text-3xl font-bold text-center mb-6 border-b-2 border-gray-600 pb-3">メインメニュー</h1>
-                <div id="status-display" class="mb-6 text-lg grid grid-cols-2 gap-x-4 gap-y-2">
-                    <div>名前: <span id="player-name" class="font-semibold text-cyan-400"></span></div>
-                    <div>レベル: <span id="player-level" class="font-semibold text-green-400"></span></div>
-                    <div>職業: <span id="player-class" class="font-semibold text-cyan-400"></span></div>
-                    <div>所持金: <span id="player-gold" class="font-semibold text-yellow-400"></span> G</div>
-                </div>
-                <nav class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button data-screen="kingdom" class="p-4 rounded rpg-button text-lg">王国</button>
-                    <button data-screen="explore" class="p-4 rounded rpg-button text-lg">探索</button>
-                    <button data-screen="party" class="p-4 rounded rpg-button text-lg">パーティ</button>
-                    <button data-screen="items" class="p-4 rounded rpg-button text-lg">アイテム</button>
-                    <button data-screen="options" class="p-4 rounded rpg-button text-lg">オプション</button>
-                </nav>
+             <div class="mt-8 text-center">
+                <p class="text-sm text-gray-400">あなたのID:</p>
+                <p id="user-id-display" class="text-xs text-gray-500 bg-gray-100 p-2 rounded break-all"></p>
             </div>
         </div>
 
-        <!-- 王国 -->
-        <div id="kingdom-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4 border-b-2 border-gray-600 pb-2">王国</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <button data-screen="guild" class="p-4 rounded rpg-button text-lg">探索者協会</button>
-                    <button data-screen="blacksmith" class="p-4 rounded rpg-button text-lg">鍛冶屋</button>
-                    <button data-screen="general-store" class="p-4 rounded rpg-button text-lg">雑貨屋</button>
-                    <button data-screen="ranch" class="p-4 rounded rpg-button text-lg">牧場</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 探索者協会 -->
-        <div id="guild-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded mb-4">← 王国へ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">探索者協会</h2>
-                <div class="flex gap-2 mb-4">
-                    <button class="rpg-button px-4 py-2 rounded-t-lg" onclick="showTab('guild-tab-1', this)">探索の心得</button>
-                    <button class="rpg-button px-4 py-2 rounded-t-lg opacity-60" onclick="showTab('guild-tab-2', this)">探索状況</button>
-                </div>
-                <div id="guild-tab-1" class="guild-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2 text-yellow-300">よう、新人！俺が探索のイロハを教えてやる。</h3>
-                    <div class="space-y-4">
-                        <div><h4 class="text-lg font-bold">探索について</h4><p>「探索」からフィールドを選んで冒険に出るんだ。モンスターを倒して経験値や素材、金を手に入れろ。レベルが上がれば、もっと強くなれるぜ。</p></div>
-                        <div><h4 class="text-lg font-bold">装備の重要性</h4><p>「鍛冶屋」で新しい装備を買ったり、モンスターの素材で特別な装備を作ったりできる。良い装備はあんたの命を守る。金や素材を惜しむなよ。</p></div>
-                        <div><h4 class="text-lg font-bold">アイテムを活用しろ</h4><p>「雑貨屋」では回復薬なんかの便利なものが手に入る。探索に行く前には準備を万端にしておけ。持ってるアイテムは「アイテム」メニューから確認できるぞ。</p></div>
-                         <div><h4 class="text-lg font-bold">仲間と協力だ</h4><p>冒険は一人じゃない。「パーティ」メニューから仲間の様子を確認したり、装備を変えてやったりできる。頼りになる仲間がいれば百人力だ。</p></div>
+        <!-- ===== ロビー画面 ===== -->
+        <div id="lobby-screen" class="screen p-6">
+            <header class="text-center mb-6 relative">
+                <h1 id="lobby-title" class="text-2xl font-bold text-gray-800"></h1>
+                <button id="back-to-home-btn" class="absolute top-0 left-0 text-gray-500 hover:text-gray-800 p-2">&larr; 戻る</button>
+                <p class="text-gray-500 mt-1">友達とコードを共有して参加者を集めよう</p>
+            </header>
+            <div id="join-create-section">
+                <div class="space-y-4">
+                     <button id="create-game-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">新しいルームを作成</button>
+                    <div class="relative flex items-center justify-center text-gray-400"><span class="px-2 bg-white">または</span></div>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="join-code-input" placeholder="共有コードを入力" class="flex-grow w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <button id="join-game-btn" class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-3 px-4 rounded-lg shadow-md">参加</button>
                     </div>
                 </div>
-                <div id="guild-tab-2" class="guild-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2">各フィールドの探索状況</h3>
-                    <div id="field-progress-container" class="space-y-4"></div>
+                <!-- 大富豪ローカルルール設定 -->
+                <div id="daifugo-rules-section" class="hidden mt-6 p-4 border rounded-lg bg-gray-50">
+                    <h3 class="font-bold mb-3 text-gray-800 flex justify-between items-center">
+                        <span>大富豪ローカルルール設定</span>
+                        <button id="rule-info-btn" class="text-sm text-blue-500 hover:underline">ルール説明</button>
+                    </h3>
+                    <div id="daifugo-rules-list" class="space-y-2 text-sm text-gray-700 grid grid-cols-2 gap-x-4 gap-y-2">
+                        <!-- ルールチェックボックスがJSでここに追加されます -->
+                    </div>
+                </div>
+            </div>
+            <div id="waiting-room-section" class="hidden">
+                <div class="text-center mb-6">
+                    <p class="text-gray-600">共有コード</p>
+                    <div class="bg-gray-100 p-4 rounded-lg mt-2 flex items-center justify-center">
+                        <p id="share-code-display" class="text-3xl font-bold tracking-widest text-gray-800"></p>
+                        <button id="copy-code-btn" class="ml-4 p-2 rounded-lg bg-gray-200 hover:bg-gray-300"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                    </div>
+                </div>
+                <div class="mb-6"><h2 class="text-xl font-bold text-gray-700 mb-3">参加者</h2><div id="player-list" class="space-y-2"></div></div>
+                <div class="mt-8 space-y-4">
+                     <button id="start-game-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed">ゲーム開始</button>
+                    <button id="leave-game-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg shadow-md">ルームを抜ける</button>
                 </div>
             </div>
         </div>
 
-        <!-- 鍛冶屋 -->
-        <div id="blacksmith-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <div class="flex justify-between items-center mb-4">
-                    <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded">← 王国へ戻る</button>
-                    <div class="text-lg">所持金: <span id="blacksmith-gold" class="font-semibold text-yellow-400"></span> G</div>
-                </div>
-                <h2 class="text-2xl font-bold mb-4">鍛冶屋</h2>
-                <p class="italic bg-gray-900 p-3 rounded-md mb-4">「へい、いらっしゃい！　ウチの武具は一級品だぜ。見ていきな！」</p>
-                <div class="flex gap-2 mb-4">
-                    <button class="rpg-button px-4 py-2 rounded-t-lg" onclick="showTab('blacksmith-tab-1', this)">購入</button>
-                    <button class="rpg-button px-4 py-2 rounded-t-lg opacity-60" onclick="showTab('blacksmith-tab-2', this)">作成</button>
-                </div>
-                <div id="blacksmith-tab-1" class="blacksmith-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2">購入可能な装備</h3>
-                    <div id="blacksmith-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-                </div>
-                <div id="blacksmith-tab-2" class="blacksmith-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2">作成可能な装備</h3>
-                    <div id="blacksmith-craft-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-                </div>
+        <!-- ===== ゲーム画面 ===== -->
+        <div id="game-screen" class="screen p-2 md:p-4 bg-green-800 min-h-screen text-white">
+            <div id="game-header" class="flex justify-between items-center mb-2 p-2 bg-black bg-opacity-20 rounded-lg">
+                <h2 id="game-title" class="text-xl font-bold"></h2>
+                <button id="leave-game-ingame-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded-lg text-sm">ルーム退出</button>
             </div>
+            <div id="opponents-area" class="flex justify-around items-start flex-wrap gap-2 mb-2 min-h-[100px]"></div>
+            <div id="table-area" class="flex-grow flex flex-col items-center justify-center bg-green-700 rounded-lg p-2 shadow-inner mb-2 relative min-h-[140px]"></div>
+            <div id="my-info-area" class="flex flex-col items-center justify-center">
+                <div id="my-hand-area-cards" class="w-full min-h-[120px]"></div>
+                <div id="game-actions-area" class="mt-2 h-10"></div>
+            </div>
+            <div id="game-status-message" class="text-center font-semibold p-2 bg-black bg-opacity-30 rounded-lg mt-2"></div>
         </div>
 
-        <!-- 雑貨屋 -->
-        <div id="general-store-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <div class="flex justify-between items-center mb-4">
-                    <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded">← 王国へ戻る</button>
-                    <div class="text-lg">所持金: <span id="general-store-gold" class="font-semibold text-yellow-400"></span> G</div>
-                </div>
-                <h2 class="text-2xl font-bold mb-4">雑貨屋</h2>
-                <p class="italic bg-gray-900 p-3 rounded-md mb-4">「あら、いらっしゃい。冒険に役立つものを揃えてるわよ。ゆっくり見ていってね。」</p>
-                <div class="flex gap-2 mb-4">
-                    <button class="rpg-button px-4 py-2 rounded-t-lg" onclick="showTab('store-tab-1', this)">購入</button>
-                    <button class="rpg-button px-4 py-2 rounded-t-lg opacity-60" onclick="showTab('store-tab-2', this)">売却</button>
-                </div>
-                <div id="store-tab-1" class="store-tab p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2">商品リスト</h3>
-                    <div id="store-purchase-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-                </div>
-                <div id="store-tab-2" class="store-tab hidden p-4 bg-gray-900 rounded-b-lg rounded-r-lg">
-                    <h3 class="text-xl font-semibold mb-2">所持アイテムを売却</h3>
-                    <div id="store-sell-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- 牧場 -->
-        <div id="ranch-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="kingdom" class="rpg-button px-4 py-1 rounded mb-4">← 王国へ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">牧場</h2>
-                <p class="italic bg-gray-900 p-3 rounded-md mb-4">「やあ、よく来たね。ここは動物たちとのどかな時間を過ごせる場所さ。今はまだ準備中だけど、楽しみにしててくれよな！」</p>
-                <p class="text-center text-2xl mt-12 text-yellow-400">🚧 現在実装中です 🚧</p>
-            </div>
-        </div>
-
-        <!-- 探索 -->
-        <div id="explore-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">探索</h2>
-                <div id="explore-field-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-            </div>
-        </div>
-
-        <!-- パーティ -->
-        <div id="party-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">パーティ編成</h2>
-                <div class="flex flex-col md:flex-row gap-4">
-                    <div id="party-member-list" class="flex md:flex-col gap-2"></div>
-                    <div id="party-member-details" class="flex-grow bg-gray-900 p-4 rounded-lg"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- アイテム -->
-        <div id="items-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">所持アイテム</h2>
-                <div class="flex gap-2 mb-4">
-                    <button class="rpg-button px-4 py-2 rounded-t-lg" onclick="renderItemsScreen('equipment', this)">装備品</button>
-                    <button class="rpg-button px-4 py-2 rounded-t-lg opacity-60" onclick="renderItemsScreen('other', this)">消耗品/素材</button>
-                </div>
-                <div id="inventory-list" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2 bg-gray-900 p-4 rounded-b-lg rounded-r-lg"></div>
-            </div>
-        </div>
-
-        <!-- オプション -->
-        <div id="options-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="main-menu" class="rpg-button px-4 py-1 rounded mb-4">← メニューへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">オプション</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <button data-screen="monster-book" class="p-4 rounded rpg-button text-lg">モンスター図鑑</button>
-                    <button data-screen="export-data" class="p-4 rounded rpg-button text-lg">データのエクスポート</button>
-                    <button id="name-change-btn" class="p-4 rounded rpg-button text-lg">名前の変更</button>
-                    <button id="reset-data-btn" class="p-4 rounded bg-red-800 hover:bg-red-700 text-lg">ゲームデータのリセット</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- モンスター図鑑 -->
-        <div id="monster-book-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="options" class="rpg-button px-4 py-1 rounded mb-4">← オプションへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">モンスター図鑑</h2>
-                <div id="monster-list" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2"></div>
-            </div>
-        </div>
-        
-        <!-- データのエクスポート -->
-        <div id="export-data-screen" class="screen">
-            <div class="bg-gray-800 p-6 rounded-lg rpg-box">
-                <button data-screen="options" class="rpg-button px-4 py-1 rounded mb-4">← オプションへ戻る</button>
-                <h2 class="text-2xl font-bold mb-4">データのエクスポート</h2>
-                <p class="mb-4">以下のテキストをコピーして、別の場所に保存してください。データを復元する際に使用します。</p>
-                <textarea id="export-data-textarea" readonly class="w-full h-64 bg-gray-900 text-white p-2 rounded border border-gray-600"></textarea>
-                <button id="copy-data-button" class="rpg-button px-6 py-2 rounded mt-4">コピー</button>
-                <span id="copy-feedback" class="ml-4 text-green-400 opacity-0 transition-opacity">コピーしました！</span>
+        <!-- ===== メッセージ表示用モーダル ===== -->
+        <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-11/12 text-center">
+                <p id="message-text" class="text-lg text-gray-800"></p>
+                <button id="close-message-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">OK</button>
             </div>
         </div>
     </div>
 
-<script>
-// =================================================================================
-// データベース
-// =================================================================================
-const DB = {
-    items: {
-        'weapon001': { name: '銅の剣', type: 'weapon', price: 120, sellPrice: 60, description: 'ありふれた銅製の剣。', stats: { St: 5 } },
-        'weapon002': { name: '鉄の剣', type: 'weapon', price: 500, sellPrice: 250, description: '銅の剣より丈夫で切れ味がいい。', stats: { St: 12 } },
-        'weapon101': { name: '初心者の杖', type: 'weapon', price: 100, sellPrice: 50, description: '魔力の込められた樫の杖。', stats: { In: 6 } },
-        'head001': { name: '皮の帽子', type: 'head', price: 60, sellPrice: 30, description: '簡単な皮の帽子。', stats: { Pa: 2 } },
-        'body001': { name: '皮の服', type: 'body', price: 80, sellPrice: 40, description: '動物の皮で作られた簡単な服。', stats: { Pa: 4 } },
-        'legs001': { name: '皮のズボン', type: 'legs', price: 70, sellPrice: 35, description: '簡単な皮のズボン。', stats: { Pa: 3 } },
-        'accessory001': { name: '力の指輪', type: 'accessory', price: 1000, sellPrice: 500, description: '筋力が少し上昇する指輪。', stats: { St: 3 } },
-        'item001': { name: '薬草', type: 'consumable', price: 20, sellPrice: 10, description: 'HPを少し回復する。' },
-        'item002': { name: '魔力水', type: 'consumable', price: 50, sellPrice: 25, description: 'MPを少し回復する。' },
-        'material001': { name: 'ワームの粘液', type: 'material', sellPrice: 5, description: 'ワームから採れるネバネバした液体。' },
-        'material002': { name: 'ゴブリンの棍棒', type: 'material', sellPrice: 12, description: 'ゴブリンが使っていた粗末な棍棒。' },
-    },
-    monsters: {'worm':{no:1,name:'ワーム',race:'蟲族',habitat:'平原、洞窟',story:'土の中に生息する大型のミミズのようなモンスター。特に毒はないが、その粘液は様々な薬品の材料になる。'},'titan_worm':{no:2,name:'タイタンワーム',race:'蟲族',habitat:'汚染された土地',story:'ワームが巨大化した亜種。強靭な外皮を持ち、並大抵の攻撃では傷一つつかないと言われている。'},'harpy':{no:3,name:'ハーピィ',race:'鳥人族',habitat:'山岳地帯',story:'女性の顔と鳥の体を持つモンスター。その歌声は船乗りを惑わせるという言い伝えがある。'},'goblin':{no:4,name:'ゴブリン',race:'亜人族',habitat:'森、洞窟',story:'知能は低いが、集団で行動する厄介なモンスター。手製の棍棒で襲いかかってくる。'},'goblin_archer':{no:5,name:'ゴブリンアーチャー',race:'亜人族',habitat:'森',story:'弓矢の扱いを覚えたゴブリン。後方からの支援射撃は、単純ながらも脅威となる。'},'goblin_mage':{no:6,name:'ゴブリンメイジ',race:'亜人族',habitat:'古代遺跡',story:'ゴブリンの中でも特に知能の高い個体。初歩的な魔法を操り、火の玉などを放ってくる。'},'mega_goblin':{no:7,name:'メガゴブリン',race:'亜人族',habitat:'ゴブリンの巣',story:'ゴブリンの王とも呼ばれる巨大な個体。その怪力は岩をも砕くと恐れられている。'},'unknown008':{no:8,name:'？？？',race:'？？？',habitat:'？？？',story:'未確認のモンスター。'},'unknown009':{no:9,name:'？？？',race:'？？？',habitat:'？？？',story:'未確認のモンスター。'}},
-    fields: {'hearts_plain':{name:'ハーツ平原'},'misty_forest':{name:'霧の森'}},
-    blacksmithPurchaseConditions: [ { itemId: 'weapon001', condition: (gameData) => true }, { itemId: 'head001', condition: (gameData) => true }, { itemId: 'body001', condition: (gameData) => true }, { itemId: 'legs001', condition: (gameData) => true }, { itemId: 'weapon002', condition: (gameData) => gameData.party[0].level >= 5 }, { itemId: 'accessory001', condition: (gameData) => gameData.party[0].level >= 10 }, ],
-    blacksmithCraftRecipes: [{itemId:'weapon002',materials:[{id:'material002',quantity:5},{id:'material001',quantity:10}],condition:(gameData)=>gameData.items.some(item=>item.id==='material002')}],
-    generalStorePurchaseConditions: [{itemId:'item001',condition:(gameData)=>true},{itemId:'item002',condition:(gameData)=>gameData.party[0].class==='魔導士'||gameData.party[0].level>=3}],
-};
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, arrayUnion, arrayRemove, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // --- 定数と設定 ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyDrgRoyNxnXHia1ASG1dup-hm2p4D0IpGw",
+            authDomain: "card-game-platform-f967a.firebaseapp.com",
+            projectId: "card-game-platform-f967a",
+            storageBucket: "card-game-platform-f967a.firebasestorage.app",
+            messagingSenderId: "165676867683",
+            appId: "1:165676867683:web:dfd9677b260edf12161856",
+            measurementId: "G-HK9L7PR991"
+        };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-card-game-app';
+        const GAME_NAMES = { daifugo: "大富豪", babanuki: "ばば抜き", shinkeisuijaku: "神経衰弱", doubt: "ダウト" };
+        const MIN_PLAYERS = { daifugo: 2, babanuki: 2, shinkeisuijaku: 2, doubt: 2 };
+        const MAX_PLAYERS = { daifugo: 6, babanuki: 8, shinkeisuijaku: 6, doubt: 8 };
+        const SUITS = ['H', 'D', 'C', 'S'];
+        const RANKS = Array.from({ length: 13 }, (_, i) => i + 1); // 1(A) to 13(K)
+        const RANK_DISPLAY_MAP = { '1': 'A', '11': 'J', '12': 'Q', '13': 'K' };
+        const DAIFUGO_RULES = {
+            eightCut: { label: "8切り", default: true, description: "8を出すと場が流れます。" },
+            elevenBack: { label: "11バック", default: true, description: "J(11)を出すとカードの強さが一時的に逆転します。" },
+            shibari: { label: "しばり", default: true, description: "前の人と同じスートのカードが続くと、以降そのスートしか出せなくなります。" },
+            revolution: { label: "革命", default: true, description: "同じ数字4枚以上でカードの強さが永続的に逆転します。" },
+            sevenPass: { label: "7渡し", default: false, description: "出した7の枚数分、次の人に手札を渡せます。" },
+            tenDiscard: { label: "10捨て", default: false, description: "出した10の枚数分、手札を捨てられます。" },
+        };
 
-// =================================================================================
-// ゲームロジック
-// =================================================================================
-let gameData;
-let currentPurchase = { itemId: null, quantity: 1, price: 0 };
-let currentSell = { itemId: null, quantity: 1, sellPrice: 0, maxQuantity: 0 };
-let currentEquipmentChange = { memberIndex: null, slot: null };
+        // --- グローバル変数 ---
+        let app, auth, db;
+        let userId, userDisplayName;
+        let currentGameId = null;
+        let selectedGameType = null;
+        let gameUnsubscribe = null;
+        let localGameState = {};
+        let clientSideTimer = null;
 
-// --- ゲームの初期化とセーブ/ロード ---
-window.onload = function() {
-    loadGame();
-    setupEventListeners();
-    if (gameData) {
-        renderAll();
-        switchScreen('main-menu');
-    }
-};
+        // --- DOM要素 ---
+        const screens = { home: document.getElementById('home-screen'), lobby: document.getElementById('lobby-screen'), game: document.getElementById('game-screen') };
+        const allDomElements = {
+            userIdDisplay: document.getElementById('user-id-display'),
+            lobbyTitle: document.getElementById('lobby-title'),
+            createGameBtn: document.getElementById('create-game-btn'),
+            joinCodeInput: document.getElementById('join-code-input'),
+            joinGameBtn: document.getElementById('join-game-btn'),
+            joinCreateSection: document.getElementById('join-create-section'),
+            waitingRoomSection: document.getElementById('waiting-room-section'),
+            shareCodeDisplay: document.getElementById('share-code-display'),
+            playerList: document.getElementById('player-list'),
+            startGameBtn: document.getElementById('start-game-btn'),
+            leaveGameBtn: document.getElementById('leave-game-btn'),
+            copyCodeBtn: document.getElementById('copy-code-btn'),
+            messageModal: document.getElementById('message-modal'),
+            messageText: document.getElementById('message-text'),
+            closeMessageBtn: document.getElementById('close-message-btn'),
+            backToHomeBtn: document.getElementById('back-to-home-btn'),
+            daifugoRulesSection: document.getElementById('daifugo-rules-section'),
+            daifugoRulesList: document.getElementById('daifugo-rules-list'),
+            ruleInfoBtn: document.getElementById('rule-info-btn'),
+            gameTitle: document.getElementById('game-title'),
+            leaveGameIngameBtn: document.getElementById('leave-game-ingame-btn'),
+            opponentsArea: document.getElementById('opponents-area'),
+            tableArea: document.getElementById('table-area'),
+            myHandAreaCards: document.getElementById('my-hand-area-cards'),
+            gameActionsArea: document.getElementById('game-actions-area'),
+            gameStatusMessage: document.getElementById('game-status-message'),
+        };
 
-function loadGame() {
-    const savedData = localStorage.getItem('textRpgGameData');
-    if (savedData) {
-        gameData = JSON.parse(savedData);
-    } else {
-        document.getElementById('first-time-modal').style.display = 'flex';
-    }
-}
+        // --- 初期化 & 認証 ---
+        async function initialize() {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            onAuthStateChanged(auth, user => handleAuthState(user));
+            setupEventListeners();
+            setupDaifugoRules();
+        }
 
-function saveGame() {
-    if (gameData) {
-        localStorage.setItem('textRpgGameData', JSON.stringify(gameData));
-    }
-}
+        async function handleAuthState(user) {
+            if (user) {
+                userId = user.uid;
+                userDisplayName = `Player-${userId.substring(0, 4)}`;
+                allDomElements.userIdDisplay.textContent = userId;
+            } else {
+                try {
+                    await (typeof __initial_auth_token !== 'undefined' && __initial_auth_token
+                        ? signInWithCustomToken(auth, __initial_auth_token)
+                        : signInAnonymously(auth));
+                } catch (error) { console.error("Authentication failed:", error); showMessage("認証に失敗しました。"); }
+            }
+        }
 
-function generateStats(playerClass) {
-    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-    let stats = { Li: rand(8, 12), St: rand(8, 12), In: rand(8, 12), Pa: rand(8, 12), Ag: rand(8, 12) };
-    if (playerClass === '剣士') {
-        stats.St = rand(12, 16);
-        stats.In = rand(3, 6);
-    } else if (playerClass === '魔導士') {
-        stats.In = rand(12, 16);
-        stats.St = rand(3, 6);
-    }
-    return stats;
-}
+        // --- イベントリスナー設定 ---
+        function setupEventListeners() {
+            document.querySelectorAll('.game-select-btn').forEach(btn => btn.addEventListener('click', handleGameSelect));
+            allDomElements.createGameBtn.addEventListener('click', createGame);
+            allDomElements.joinGameBtn.addEventListener('click', joinGame);
+            allDomElements.leaveGameBtn.addEventListener('click', leaveGame);
+            allDomElements.leaveGameIngameBtn.addEventListener('click', leaveGame);
+            allDomElements.startGameBtn.addEventListener('click', startGame);
+            allDomElements.copyCodeBtn.addEventListener('click', copyShareCode);
+            allDomElements.closeMessageBtn.addEventListener('click', () => allDomElements.messageModal.classList.add('hidden'));
+            allDomElements.backToHomeBtn.addEventListener('click', resetLobby);
+            allDomElements.ruleInfoBtn.addEventListener('click', showDaifugoRuleInfo);
+        }
+        
+        // --- 画面遷移 & UIヘルパー ---
+        const showScreen = (screenName) => { Object.values(screens).forEach(s => s.classList.remove('active')); screens[screenName].classList.add('active'); };
+        const showMessage = (message, isHtml = false) => { 
+            if(isHtml) allDomElements.messageText.innerHTML = message;
+            else allDomElements.messageText.textContent = message;
+            allDomElements.messageModal.classList.remove('hidden'); 
+        };
+        const generateGameId = () => Array(6).fill(0).map(() => 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789'[Math.floor(Math.random() * 35)]).join('');
 
-function initNewGame(playerClass) {
-    const playerName = document.getElementById('player-name-input').value.trim() || '冒険者';
-    const player = {
-        name: playerName,
-        class: playerClass,
-        level: 1,
-        exp: 0,
-        nextExp: 100,
-        baseStats: generateStats(playerClass),
-        equipment: { weapon: null, head: null, body: null, legs: null, accessory1: null, accessory2: null },
-    };
-    gameData = {
-        party: [player, null, null, null],
-        gold: 200,
-        items: [{ id: 'item001', quantity: 3 }, { id: 'weapon001', quantity: 1 }],
-        unlockedFields: ['hearts_plain'],
-        fieldProgress: { 'hearts_plain': { monsterCompletion: 0, itemCompletion: 0, mapCompletion: 0, overall: 0, rewardClaimed: false }, },
-        monsterLog: {},
-    };
-    Object.keys(DB.monsters).forEach(id => {
-        if (!id.startsWith('unknown')) gameData.monsterLog[id] = { discovered: true };
-    });
-    saveGame();
-    document.getElementById('first-time-modal').style.display = 'none';
-    renderAll();
-    switchScreen('main-menu');
-}
+        // --- ホーム画面ロジック ---
+        function handleGameSelect(e) {
+            if (!auth.currentUser) return showMessage("ユーザー情報が読み込まれていません。");
+            selectedGameType = e.currentTarget.dataset.game;
+            allDomElements.lobbyTitle.textContent = `${GAME_NAMES[selectedGameType]} のロビー`;
+            allDomElements.daifugoRulesSection.classList.toggle('hidden', selectedGameType !== 'daifugo');
+            showScreen('lobby');
+        }
 
-// --- UI描画関連 ---
-function renderAll() {
-    if (!gameData) return;
-    renderStatus();
-    renderScreens();
-}
+        // --- 大富豪ルール設定 ---
+        function setupDaifugoRules() {
+            const listEl = allDomElements.daifugoRulesList;
+            listEl.innerHTML = '';
+            for (const ruleKey in DAIFUGO_RULES) {
+                const rule = DAIFUGO_RULES[ruleKey];
+                const labelEl = document.createElement('label');
+                labelEl.className = 'flex items-center space-x-2 cursor-pointer';
+                labelEl.innerHTML = `<input type="checkbox" name="${ruleKey}" ${rule.default ? 'checked' : ''} class="rounded text-blue-500 focus:ring-blue-500"><span>${rule.label}</span>`;
+                listEl.appendChild(labelEl);
+            }
+        }
+        function getSelectedDaifugoRules() {
+            const rules = {};
+            document.querySelectorAll('#daifugo-rules-list input[type="checkbox"]').forEach(checkbox => { rules[checkbox.name] = checkbox.checked; });
+            return rules;
+        }
+        function showDaifugoRuleInfo() {
+            let infoText = '<ul class="text-left list-disc pl-5 space-y-2">';
+            for(const key in DAIFUGO_RULES) { infoText += `<li><strong>${DAIFUGO_RULES[key].label}:</strong> ${DAIFUGO_RULES[key].description}</li>`; }
+            infoText += '</ul>';
+            showMessage(infoText, true);
+        }
 
-function renderStatus() {
-    const player = gameData.party[0];
-    document.getElementById('player-name').textContent = player.name;
-    document.getElementById('player-class').textContent = player.class;
-    document.getElementById('player-level').textContent = player.level;
-    document.getElementById('player-gold').textContent = gameData.gold;
-}
+        // --- ロビーロジック ---
+        async function createGame() {
+            const gameId = generateGameId(); currentGameId = gameId;
+            const hostPlayer = { id: userId, name: userDisplayName, isHost: true, rank: 'heimin' };
+            const gameDoc = { gameType: selectedGameType, hostId: userId, players: [hostPlayer], status: 'waiting', createdAt: new Date() };
+            if (selectedGameType === 'daifugo') gameDoc.rules = getSelectedDaifugoRules();
+            try {
+                const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, gameId);
+                await setDoc(gameRef, gameDoc);
+                listenToGameUpdates(gameId);
+                allDomElements.joinCreateSection.classList.add('hidden'); allDomElements.waitingRoomSection.classList.remove('hidden');
+            } catch (error) { console.error("Error creating game:", error); showMessage("ゲームの作成に失敗しました。"); }
+        }
 
-function renderScreens() {
-    renderGuild();
-    renderBlacksmith();
-    renderGeneralStore();
-    renderExplore();
-    renderPartyScreen();
-    renderItemsScreen('equipment', document.querySelector('#items-screen button')); 
-    renderMonsterBook();
-    renderExportData();
-}
+        async function joinGame() {
+            const gameId = allDomElements.joinCodeInput.value.toUpperCase().trim();
+            if (!gameId) return showMessage("共有コードを入力してください。");
+            const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, gameId);
+            try {
+                const gameDoc = await getDoc(gameRef); if (!gameDoc.exists()) return showMessage("ルームが見つかりません。");
+                const gameData = gameDoc.data(); if (gameData.status !== 'waiting') return showMessage("このゲームは既に参加できません。");
+                if (gameData.players.length >= MAX_PLAYERS[gameData.gameType]) return showMessage("このルームは満員です。");
+                if (!gameData.players.some(p => p.id === userId)) {
+                    const newPlayer = { id: userId, name: userDisplayName, isHost: false, rank: 'heimin' };
+                    await updateDoc(gameRef, { players: arrayUnion(newPlayer) });
+                }
+                currentGameId = gameId; selectedGameType = gameData.gameType;
+                listenToGameUpdates(gameId);
+                allDomElements.lobbyTitle.textContent = `${GAME_NAMES[selectedGameType]} のロビー`;
+                allDomElements.daifugoRulesSection.classList.toggle('hidden', selectedGameType !== 'daifugo');
+                allDomElements.joinCreateSection.classList.add('hidden'); allDomElements.waitingRoomSection.classList.remove('hidden');
+            } catch (error) { console.error("Error joining game:", error); showMessage("ゲームへの参加に失敗しました。"); }
+        }
+        
+        async function leaveGame() {
+            if (!currentGameId || !userId) return;
+            const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, currentGameId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const gameDoc = await transaction.get(gameRef); if (!gameDoc.exists()) return;
+                    let gameData = gameDoc.data();
+                    const remainingPlayers = gameData.players.filter(p => p.id !== userId);
+                    if (remainingPlayers.length === 0) { transaction.delete(gameRef); }
+                    else {
+                        if (gameData.hostId === userId) { remainingPlayers[0].isHost = true; gameData.hostId = remainingPlayers[0].id; }
+                        gameData.players = remainingPlayers;
+                        if(gameData.status === 'playing') {
+                           const logic = gameLogics[gameData.gameType];
+                           if(logic?.handleLeave) gameData = logic.handleLeave(gameData, userId);
+                        }
+                        transaction.update(gameRef, gameData);
+                    }
+                });
+            } catch (error) { console.error("Error leaving game:", error); }
+            finally { resetLobby(); }
+        }
+        
+        function resetLobby() {
+            if (gameUnsubscribe) { gameUnsubscribe(); gameUnsubscribe = null; }
+            currentGameId = null; localGameState = {}; allDomElements.joinCodeInput.value = '';
+            allDomElements.waitingRoomSection.classList.add('hidden'); allDomElements.joinCreateSection.classList.remove('hidden');
+            showScreen('home');
+        }
 
-function switchScreen(screenId) { /* ... (変更なし) ... */ }
-function showTab(tabId, clickedButton) { /* ... (変更なし) ... */ }
-function showConfirmation(title, message, onConfirm) { /* ... (変更なし) ... */ }
-
-// --- 通知機能 ---
-function showNotification(message, type = 'success') { /* ... (変更なし) ... */ }
-
-// --- ショップ機能 (購入) ---
-function openPurchaseModal(itemId) {
-    const item = DB.items[itemId];
-    if (!item) return;
-    if (gameData.gold < item.price) {
-        showNotification("ゴールドが不足しています。", "error");
-        return;
-    }
-    currentPurchase = { itemId, quantity: 1, price: item.price };
-    document.getElementById('purchase-item-name').textContent = item.name;
-    document.getElementById('purchase-item-desc').textContent = item.description;
-    updatePurchaseModal();
-    document.getElementById('purchase-modal').style.display = 'flex';
-}
-
-function updatePurchaseModal() {
-    const input = document.getElementById('purchase-qty-input');
-    currentPurchase.quantity = parseInt(input.value) || 1;
-    if (currentPurchase.quantity < 1) currentPurchase.quantity = 1;
-    if (currentPurchase.quantity > 99) currentPurchase.quantity = 99;
-    input.value = currentPurchase.quantity;
-
-    const totalCost = currentPurchase.price * currentPurchase.quantity;
-    const costElement = document.getElementById('purchase-total-cost');
-    const warningElement = document.getElementById('purchase-warning');
-    
-    costElement.textContent = totalCost;
-    const isOverBudget = totalCost > gameData.gold;
-    
-    costElement.classList.toggle('text-red-500', isOverBudget);
-    warningElement.textContent = isOverBudget ? 'ゴールドが不足しています。' : '';
-    
-    document.getElementById('purchase-player-gold').textContent = gameData.gold;
-    document.getElementById('purchase-confirm-btn').disabled = isOverBudget || totalCost <= 0;
-}
-
-
-function buyItem() {
-    const totalCost = currentPurchase.price * currentPurchase.quantity;
-    if (gameData.gold >= totalCost) {
-        gameData.gold -= totalCost;
-        addItemToInventory(currentPurchase.itemId, currentPurchase.quantity);
-        saveGame();
-        renderAll();
-        showNotification(`${DB.items[currentPurchase.itemId].name} を ${currentPurchase.quantity}個 購入しました。`, "success");
-        document.getElementById('purchase-modal').style.display = 'none';
-    } else {
-        showNotification("ゴールドが不足しています。", "error");
-    }
-}
-
-// --- ショップ機能 (売却) ---
-function openSellModal(itemId) {
-    const item = DB.items[itemId];
-    const itemInInventory = gameData.items.find(i => i.id === itemId);
-    if (!item || !itemInInventory) return;
-
-    const equippedCount = getEquippedCount(itemId);
-    const maxQuantity = itemInInventory.quantity - equippedCount;
-
-    if (maxQuantity <= 0) {
-        showNotification("装備中のため売却できません。", "error");
-        return;
-    }
-
-    currentSell = { itemId, quantity: 1, sellPrice: item.sellPrice, maxQuantity: maxQuantity };
-    document.getElementById('sell-item-name').textContent = item.name;
-    document.getElementById('sell-qty-input').max = currentSell.maxQuantity;
-    updateSellModal();
-    document.getElementById('sell-modal').style.display = 'flex';
-}
-
-function updateSellModal() { /* ... (変更なし) ... */ }
-function sellItem() { /* ... (変更なし) ... */ }
-
-// --- インベントリ操作 ---
-function addItemToInventory(itemId, quantity) { /* ... (変更なし) ... */ }
-function removeItemFromInventory(itemId, quantity) { /* ... (変更なし) ... */ }
-
-function getEquippedCount(itemId) {
-    let count = 0;
-    gameData.party.forEach(member => {
-        if (member) {
-            Object.values(member.equipment).forEach(equippedId => {
-                if (equippedId === itemId) {
-                    count++;
+        function listenToGameUpdates(gameId) {
+            if (gameUnsubscribe) gameUnsubscribe();
+            const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, gameId);
+            gameUnsubscribe = onSnapshot(gameRef, (doc) => {
+                if (!doc.exists()) { showMessage("ルームが削除されました。"); resetLobby(); return; }
+                const gameData = doc.data(); localGameState = gameData; 
+                if (gameData.status === 'waiting') {
+                    if (!screens.lobby.classList.contains('active')) showScreen('lobby');
+                    updateLobbyUI(gameData);
+                } else if (gameData.status === 'playing' || gameData.status === 'finished') {
+                    if (!screens.game.classList.contains('active')) showScreen('game');
+                    GameManager.renderGame(gameData);
                 }
             });
         }
-    });
-    return count;
-}
-
-// --- 装備変更機能 ---
-function getSlotType(slot) { /* ... (変更なし) ... */ }
-
-function openEquipmentModal(memberIndex, slot) {
-    currentEquipmentChange = { memberIndex, slot };
-    const member = gameData.party[memberIndex];
-    const slotType = getSlotType(slot);
-    const slotName = { weapon: '武器', head: '頭具', body: '胴具', legs: '脚具', accessory1: '装飾品1', accessory2: '装飾品2' }[slot];
-    
-    document.getElementById('equipment-slot-name').textContent = `${slotName}の変更`;
-    const listContainer = document.getElementById('equipment-list');
-    listContainer.innerHTML = '';
-
-    const availableItems = gameData.items.filter(item => DB.items[item.id]?.type === slotType);
-    
-    if (availableItems.length === 0) {
-        listContainer.innerHTML = '<p class="text-gray-400">装備できるアイテムがありません。</p>';
-    } else {
-        availableItems.forEach(itemStack => {
-            const item = DB.items[itemStack.id];
-            const equippedCount = getEquippedCount(itemStack.id);
-            
-            const isCurrentlyEquippedBySelf = member.equipment[slot] === itemStack.id;
-            const equippedByOthers = isCurrentlyEquippedBySelf ? equippedCount - 1 : equippedCount;
-            const canEquip = itemStack.quantity > equippedByOthers;
-
-            let equippedMark = '';
-            if (equippedCount > 0) {
-                equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
+        
+        function updateLobbyUI(gameData) {
+            allDomElements.shareCodeDisplay.textContent = currentGameId; allDomElements.playerList.innerHTML = '';
+            gameData.players.forEach(player => {
+                const playerEl = document.createElement('div');
+                playerEl.className = 'flex items-center justify-between p-3 bg-gray-100 rounded-lg';
+                playerEl.innerHTML = `<span class="font-medium text-gray-700">${player.name} ${player.id === userId ? '(あなた)' : ''}</span><span class="text-sm font-semibold text-indigo-600">${player.isHost ? 'ホスト' : ''}</span>`;
+                allDomElements.playerList.appendChild(playerEl);
+            });
+            const isHost = gameData.hostId === userId;
+            allDomElements.startGameBtn.style.display = isHost ? 'block' : 'none';
+            if(isHost) {
+                const min = MIN_PLAYERS[gameData.gameType]; const max = MAX_PLAYERS[gameData.gameType]; const playerCount = gameData.players.length;
+                allDomElements.startGameBtn.disabled = !(playerCount >= min && playerCount <= max);
+                if (playerCount < min) allDomElements.startGameBtn.textContent = `あと${min - playerCount}人必要です`;
+                else if (playerCount > max) allDomElements.startGameBtn.textContent = `${max}人以下にしてください`;
+                else allDomElements.startGameBtn.textContent = 'ゲーム開始';
             }
-
-            const element = document.createElement('div');
-            element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
-            element.innerHTML = `
-                <div>
-                    <p class="font-semibold flex items-baseline">${item.name}${equippedMark}</p>
-                    <p class="text-sm text-gray-400">${Object.entries(item.stats).map(([key, val]) => `${key.toUpperCase()}:+${val}`).join(', ')}</p>
-                </div>
-                <button class="rpg-button px-4 py-2 rounded" onclick="equipItem('${itemStack.id}')" ${!canEquip ? 'disabled' : ''}>装備</button>
-            `;
-            listContainer.appendChild(element);
-        });
-    }
-
-    if (member.equipment[slot]) {
-        const unequipButton = document.createElement('button');
-        unequipButton.className = 'rpg-button w-full mt-4 py-2 rounded bg-red-800 hover:bg-red-700';
-        unequipButton.textContent = 'この装備を外す';
-        unequipButton.onclick = () => equipItem(null);
-        listContainer.appendChild(unequipButton);
-    }
-
-    document.getElementById('equipment-modal').style.display = 'flex';
-}
-
-function equipItem(itemId) {
-    const { memberIndex, slot } = currentEquipmentChange;
-    const member = gameData.party[memberIndex];
-    if (!member) return;
-
-    if (itemId) {
-        const itemInInventory = gameData.items.find(i => i.id === itemId);
-        const equippedCount = getEquippedCount(itemId);
-        const isCurrentlyEquippedBySelf = member.equipment[slot] === itemId;
-        const equippedByOthers = isCurrentlyEquippedBySelf ? equippedCount - 1 : equippedCount;
-
-        if (!itemInInventory || itemInInventory.quantity <= equippedByOthers) {
-             showNotification("装備できるアイテムがありません。", "error");
-             return;
         }
-    }
-    
-    member.equipment[slot] = itemId;
-    saveGame();
-    renderAll();
-    document.getElementById('equipment-modal').style.display = 'none';
-}
-
-
-// --- 名前変更機能 ---
-function openNameChangeModal() {
-    document.getElementById('name-change-input').value = gameData.party[0].name;
-    document.getElementById('name-change-modal').style.display = 'flex';
-}
-
-function changeName() {
-    const newName = document.getElementById('name-change-input').value.trim();
-    if (newName) {
-        gameData.party[0].name = newName;
-        saveGame();
-        renderAll();
-        showNotification("名前を変更しました。", "success");
-        document.getElementById('name-change-modal').style.display = 'none';
-    } else {
-        showNotification("名前は空にできません。", "error");
-    }
-}
-
-// --- 各画面の描画 ---
-function renderShopList(containerId, conditionList) { /* ... (変更なし) ... */ }
-
-function renderBlacksmith() {
-    document.getElementById('blacksmith-gold').textContent = gameData.gold;
-    renderShopList('blacksmith-purchase-list', DB.blacksmithPurchaseConditions);
-    document.getElementById('blacksmith-craft-list').innerHTML = '';
-}
-
-function renderGeneralStore() {
-    document.getElementById('general-store-gold').textContent = gameData.gold;
-    renderShopList('store-purchase-list', DB.generalStorePurchaseConditions);
-    renderSellList();
-}
-
-function renderSellList() {
-    const container = document.getElementById('store-sell-list');
-    container.innerHTML = '';
-    
-    const sellableItems = gameData.items.filter(itemStack => DB.items[itemStack.id]?.sellPrice > 0);
-
-    if (sellableItems.length === 0) {
-        container.innerHTML = '<p class="text-gray-400 col-span-full text-center">売却できるアイテムはありません。</p>';
-        return;
-    }
-
-    sellableItems.forEach(itemStack => {
-        const item = DB.items[itemStack.id];
-        const equippedCount = getEquippedCount(itemStack.id);
-        const sellableQuantity = itemStack.quantity - equippedCount;
         
-        const element = document.createElement('div');
-        element.className = 'bg-gray-700 p-3 rounded flex justify-between items-center';
+        async function copyShareCode() {
+            const code = allDomElements.shareCodeDisplay.textContent;
+            try { await navigator.clipboard.writeText(code); showMessage(`コード "${code}" をコピーしました。`); }
+            catch (err) { console.error('Copy failed', err); showMessage("コピーに失敗しました。"); }
+        }
+
+        async function startGame() {
+            if (localGameState.hostId !== userId) return;
+            const newGameState = GameManager.initializeGame(localGameState);
+            if(newGameState) {
+                const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, currentGameId);
+                await updateDoc(gameRef, { status: 'playing', gameState: newGameState });
+            }
+        }
+
+        // ========================================================================
+        // --- ゲームロジック ---
+        // ========================================================================
+        const CardUtils = {
+            createDeck: (useJokers = 0) => {
+                const deck = SUITS.flatMap(s => RANKS.map(r => `${s}_${r}`));
+                for (let i = 0; i < useJokers; i++) deck.push(`JOKER_${i}`); return deck;
+            },
+            shuffle: (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; } return a; },
+            deal: (deck, numPlayers) => { const h = Array.from({ length: numPlayers }, () => []); deck.forEach((c, i) => h[i % numPlayers].push(c)); return h; },
+            createCardElement: (cardString, faceUp = true) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = 'card'; cardEl.dataset.card = cardString;
+                if (!faceUp) { cardEl.classList.add('back'); return cardEl; }
+                if (cardString.startsWith('JOKER')) { cardEl.innerHTML = `<span class="suit">🃏</span>`; return cardEl; }
+                const [suitChar, rank] = cardString.split('_');
+                const suitMap = { S: '♠', H: '♥', D: '♦', C: '♣' }; const colorMap = { S: 'black', H: 'red', D: 'red', C: 'black' };
+                const rankDisplay = RANK_DISPLAY_MAP[rank] || rank;
+                cardEl.classList.add(colorMap[suitChar]);
+                cardEl.innerHTML = `<div class="rank">${rankDisplay}</div><div class="suit">${suitMap[suitChar]}</div><div class="suit-sm">${suitMap[suitChar]}</div>`; return cardEl;
+            }
+        };
+
+        const GameManager = {
+            initializeGame: (gameData) => { const logic = gameLogics[gameData.gameType]; return logic?.initialize ? logic.initialize(gameData) : null; },
+            renderGame: (gameData) => { allDomElements.gameTitle.textContent = GAME_NAMES[gameData.gameType]; const logic = gameLogics[gameData.gameType]; logic?.render?.(gameData); },
+            handleAction: async (action) => {
+                if (!currentGameId) return;
+                const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, currentGameId);
+                try {
+                     const logic = gameLogics[localGameState.gameType];
+                    // ホバーアクションはトランザクション外で軽量に処理
+                    if (action.type === 'HOVER_CARD' || action.type === 'UNHOVER_CARD') {
+                        if (logic?.update) {
+                            const updatedData = logic.update(localGameState, action, userId);
+                            if (updatedData) await updateDoc(gameRef, updatedData);
+                        }
+                        return;
+                    }
+                    await runTransaction(db, async (transaction) => {
+                        const gameDoc = await transaction.get(gameRef);
+                        if (!gameDoc.exists()) throw new Error("Game not found");
+                        let currentData = gameDoc.data();
+                        if (logic?.update) {
+                            const updatedData = logic.update(currentData, action, userId);
+                            if (updatedData) transaction.update(gameRef, updatedData);
+                        }
+                    });
+                } catch (error) { console.error("Action failed:", error); showMessage("操作に失敗しました: " + error.message); }
+            },
+            renderCommonLayout: (gameData, cardSortFn) => {
+                const { opponentsArea, myHandAreaCards } = allDomElements;
+                opponentsArea.innerHTML = ''; myHandAreaCards.innerHTML = '';
+                const myPlayerIndex = gameData.players.findIndex(p => p.id === userId);
+                if (myPlayerIndex === -1) return;
+                gameData.players.forEach(player => {
+                    if (player.id === userId) {
+                        const myHand = gameData.gameState.hands?.[player.id] || [];
+                        const sortedHand = cardSortFn ? cardSortFn(myHand, gameData.gameState) : myHand;
+                        sortedHand.forEach(card => myHandAreaCards.appendChild(CardUtils.createCardElement(card)));
+                    } else {
+                        const opponentHand = gameData.gameState.hands?.[player.id] || [];
+                        const opponentEl = document.createElement('div');
+                        opponentEl.dataset.playerId = player.id;
+                        const isTurn = gameData.gameState.turn === player.id || gameData.gameState.subTurn?.player === player.id;
+                        opponentEl.className = `text-center p-2 rounded-lg ${isTurn ? 'bg-yellow-500 bg-opacity-30' : 'bg-black bg-opacity-20'}`;
+                        const winnerRank = gameData.gameState.winners?.find(w => w.id === player.id)?.rank;
+                        const rankText = winnerRank ? (winnerRank === 1 ? '👑 勝ち' : (winnerRank > 90 ? '❌' : `${winnerRank}位`)) : '';
+                        const score = gameData.gameState.scores?.[player.id];
+                        const scoreText = score !== undefined ? `<span class="text-xs">スコア: ${score}</span>` : '';
+
+                        opponentEl.innerHTML = `
+                            <p class="font-bold text-sm">${player.name} ${rankText}</p>
+                            ${scoreText}
+                            <div class="opponent-card-container mt-1">
+                                ${opponentHand?.length > 0 ? `<div class="card back text-white text-2xl font-bold">${opponentHand.length}</div>` : ''}
+                            </div>
+                            <p class="text-xs mt-1 h-4">${gameData.gameState.passedPlayers?.includes(player.id) ? 'パス' : ''}</p>`;
+                        opponentsArea.appendChild(opponentEl);
+                    }
+                });
+            }
+        };
         
-        let equippedMark = '';
-        if (equippedCount > 0) {
-            equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
+        // --- 各ゲームのロジック ---
+        const gameLogics = {
+            daifugo: null,
+            babanuki: null,
+            shinkeisuijaku: null,
+            doubt: null,
+        };
+        
+        // ================== 大富豪ロジック ==================
+        const daifugoLogic = { /* ... 省略 ... */ };
+        gameLogics.daifugo = daifugoLogic;
+
+        // ================== ばば抜きロジック ==================
+        const babanukiLogic = { /* ... 省略 ... */ };
+        gameLogics.babanuki = babanukiLogic;
+
+        // ================== 神経衰弱ロジック ==================
+        const shinkeisuijakuLogic = { /* ... 省略 ... */ };
+        gameLogics.shinkeisuijaku = shinkeisuijakuLogic;
+        
+        // ================== ダウトロジック ==================
+        const doubtLogic = {
+            initialize: (gameData) => {
+                const deck = CardUtils.shuffle(CardUtils.createDeck(0));
+                const hands = CardUtils.deal(deck, gameData.players.length);
+                const playerHands = {};
+                let startingPlayer = null;
+                gameData.players.forEach((p, i) => { 
+                    playerHands[p.id] = hands[i]; 
+                    if(hands[i].includes('S_1')) startingPlayer = p.id;
+                });
+                return {
+                    hands: playerHands,
+                    turn: startingPlayer || gameData.players[0].id,
+                    field: [],
+                    expectedRank: 1,
+                    lastPlay: null, // {playerId, claimedRank, count}
+                    winners: [],
+                    log: "ダウトスタート！"
+                };
+            },
+            sortHand: (hand) => hand.sort((a,b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1])),
+            render: (gameData) => {
+                GameManager.renderCommonLayout(gameData, doubtLogic.sortHand);
+                const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
+                const state = gameData.gameState;
+                
+                tableArea.innerHTML = '';
+                if(state.field.length > 0) {
+                    const pile = document.createElement('div');
+                    pile.className = 'relative';
+                    pile.appendChild(CardUtils.createCardElement('', false));
+                    pile.innerHTML += `<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl font-bold text-white">${state.field.length}</div>`;
+                    tableArea.appendChild(pile);
+                } else {
+                    tableArea.innerHTML = '<p class="text-gray-300">場にカードはありません</p>';
+                }
+                
+                myHandAreaCards.querySelectorAll('.card').forEach(c => c.onclick = () => c.classList.toggle('selected'));
+                gameActionsArea.innerHTML = '';
+                
+                const myRank = state.winners.find(w => w.id === userId)?.rank;
+                if(myRank === 1) {
+                    gameActionsArea.innerHTML = '<p class="text-lg font-bold text-yellow-300">あなたの勝ちです！</p>';
+                } else if (state.turn === userId) {
+                    gameActionsArea.innerHTML = '<button id="play-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">出す</button>';
+                    if (state.lastPlay) {
+                        gameActionsArea.innerHTML += '<button id="doubt-btn" class="ml-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">ダウト！</button>';
+                    }
+                    document.getElementById('play-btn')?.addEventListener('click', () => {
+                        const selected = Array.from(myHandAreaCards.querySelectorAll('.card.selected')).map(c => c.dataset.card);
+                        if (selected.length > 0) GameManager.handleAction({ type: 'PLAY_CARDS', cards: selected });
+                        else showMessage('出すカードを1枚以上選択してください。');
+                    });
+                    document.getElementById('doubt-btn')?.addEventListener('click', () => GameManager.handleAction({ type: 'CALL_DOUBT' }));
+                }
+
+                let status = state.log;
+                if(gameData.status !== 'finished') {
+                    if (state.turn === userId) {
+                         const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
+                         status = `あなたのターンです。「${rankDisplay}」を出してください。`;
+                    } else {
+                        status = `${gameData.players.find(p=>p.id === state.turn)?.name ?? ''}さんのターンです。`;
+                    }
+                }
+                gameStatusMessage.textContent = status;
+            },
+            update: (gameData, action, playerId) => {
+                let state = gameData.gameState;
+                if (state.winners.some(w => w.id === playerId)) return gameData;
+
+                switch (action.type) {
+                    case 'PLAY_CARDS': {
+                        if (state.turn !== playerId) return gameData;
+                        state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
+                        const playData = { cards: action.cards, playerId: playerId, claimedRank: state.expectedRank, count: action.cards.length };
+                        state.field.push(playData);
+                        state.lastPlay = playData;
+                        const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
+                        state.log = `${userDisplayName}が「${rankDisplay}」を${action.cards.length}枚出しました。`;
+                        if (state.hands[playerId].length === 0) {
+                            state.winners.push({ id: playerId, rank: 1 });
+                            gameData.status = 'finished';
+                            state.log = `${userDisplayName}があがりました！`;
+                            return gameData;
+                        }
+                        doubtLogic.setNextTurn(gameData);
+                        break;
+                    }
+                    case 'CALL_DOUBT': {
+                        if (state.turn !== playerId || !state.lastPlay) return gameData;
+                        const lastPlay = state.lastPlay;
+                        const lastPlayerId = lastPlay.playerId;
+                        const isLie = lastPlay.cards.some(c => parseInt(c.split('_')[1]) !== lastPlay.claimedRank);
+                        const allFieldCards = state.field.flatMap(p => p.cards);
+                        
+                        let penaltyPlayerId, logMsg;
+                        if (isLie) { // ダウト成功
+                            penaltyPlayerId = lastPlayerId;
+                            logMsg = `${userDisplayName}のダウト成功！ ${gameData.players.find(p=>p.id===lastPlayerId).name}が場のカードを全て引き取ります。`;
+                        } else { // ダウト失敗
+                            penaltyPlayerId = playerId;
+                            logMsg = `${userDisplayName}のダウト失敗！場のカードを全て引き取ります。`;
+                        }
+                        
+                        state.hands[penaltyPlayerId].push(...allFieldCards);
+                        state.field = [];
+                        state.lastPlay = null;
+                        state.log = logMsg;
+                        
+                        if (isLie) { // 成功時はダウトした人から
+                            state.turn = playerId;
+                        } else { // 失敗時はダウトした人の次から
+                           doubtLogic.setNextTurn(gameData);
+                        }
+                        break;
+                    }
+                }
+                return gameData;
+            },
+            setNextTurn: (gameData) => {
+                const state = gameData.gameState;
+                const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+                let nextPlayerIndex = (currentPlayerIndex + 1) % gameData.players.length;
+                while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
+                    nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
+                }
+                state.turn = gameData.players[nextPlayerIndex].id;
+                state.expectedRank = (state.expectedRank % 13) + 1;
+            },
+            handleLeave: (gameData, playerId) => {
+                if(gameData.gameState.turn === playerId) {
+                    doubtLogic.setNextTurn(gameData);
+                }
+                return gameData;
+            }
+        };
+
+        gameLogics.babanuki = {
+            initialize: (gameData) => {
+                const deck = CardUtils.shuffle(CardUtils.createDeck(1));
+                const hands = CardUtils.deal(deck, gameData.players.length);
+                const playerHands = {};
+                gameData.players.forEach((p, i) => { playerHands[p.id] = babanukiLogic.removeInitialPairs(hands[i]); });
+                const startingPlayer = gameData.players[Math.floor(Math.random() * gameData.players.length)].id;
+                return { hands: playerHands, turn: startingPlayer, winners: [], hoverState: null, log: "ばば抜きスタート！" };
+            },
+            removeInitialPairs: (hand) => {
+                const rankMap = new Map();
+                hand.forEach(card => {
+                    const rank = card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1];
+                    if (!rankMap.has(rank)) rankMap.set(rank, []);
+                    rankMap.get(rank).push(card);
+                });
+                const finalHand = [];
+                for (const cards of rankMap.values()) {
+                    if (cards.length % 2 !== 0) finalHand.push(cards[0]);
+                }
+                return finalHand;
+            },
+            render: (gameData) => {
+                GameManager.renderCommonLayout(gameData, (hand) => CardUtils.shuffle([...hand]));
+                const { opponentsArea, myHandAreaCards, gameActionsArea, gameStatusMessage, tableArea } = allDomElements;
+                tableArea.innerHTML = '';
+                const state = gameData.gameState;
+                const myRank = state.winners.find(w => w.id === userId)?.rank;
+                let status = '';
+                const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+                const turnPlayerIdxInActive = activePlayers.findIndex(p => p.id === state.turn);
+                const targetPlayerOfTurn = activePlayers[(turnPlayerIdxInActive + activePlayers.length - 1) % activePlayers.length];
+
+                if (gameData.status === 'finished') {
+                    status = 'ゲーム終了！';
+                    if (myRank > gameData.players.length) gameActionsArea.innerHTML = `<p class="text-lg font-bold text-red-400">あなたの負けです！</p>`;
+                    else gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
+                } else if (myRank) {
+                    status = '勝ち抜け！他のプレイヤーを待っています...';
+                    gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
+                } else if (state.turn === userId) {
+                    const targetPlayer = targetPlayerOfTurn;
+                    status = `${targetPlayer.name}さんからカードを1枚引いてください。`;
+                    const targetPlayerElement = opponentsArea.querySelector(`[data-player-id="${targetPlayer.id}"]`);
+                    if (targetPlayerElement) {
+                        const cardContainer = targetPlayerElement.querySelector('.opponent-card-container');
+                        cardContainer.innerHTML = '';
+                        cardContainer.classList.add('interactive');
+                        const targetHandSize = state.hands[targetPlayer.id]?.length || 0;
+                        for (let i = 0; i < targetHandSize; i++) {
+                            const cardEl = CardUtils.createCardElement('', false);
+                            cardEl.style.cursor = 'pointer';
+                            cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'DRAW_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
+                            cardEl.addEventListener('mouseover', () => GameManager.handleAction({ type: 'HOVER_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
+                            cardEl.addEventListener('mouseout', () => GameManager.handleAction({ type: 'UNHOVER_CARD' }));
+                            cardContainer.appendChild(cardEl);
+                        }
+                    }
+                } else {
+                    status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
+                    if (targetPlayerOfTurn?.id === userId && state.hoverState) {
+                         const cardElements = myHandAreaCards.querySelectorAll('.card');
+                         if(cardElements[state.hoverState.cardIndex]) {
+                            cardElements[state.hoverState.cardIndex].classList.add('hovered');
+                         }
+                    }
+                }
+                gameStatusMessage.textContent = status;
+            },
+            update: (gameData, action, playerId) => {
+                let state = gameData.gameState;
+                if (action.type === 'HOVER_CARD' && state.turn === playerId) {
+                    gameData.gameState.hoverState = { targetPlayerId: action.targetPlayerId, cardIndex: action.cardIndex };
+                    return gameData;
+                }
+                if (action.type === 'UNHOVER_CARD' && state.turn === playerId) {
+                    gameData.gameState.hoverState = null;
+                    return gameData;
+                }
+                if (state.turn !== playerId || state.winners.some(w => w.id === playerId)) return gameData;
+                if (action.type === 'DRAW_CARD') {
+                    state.hoverState = null;
+                    const targetHand = state.hands[action.targetPlayerId];
+                    if (!targetHand || targetHand.length === 0) return gameData;
+                    const drawnCardIndex = Math.floor(Math.random() * targetHand.length);
+                    const drawnCard = targetHand.splice(drawnCardIndex, 1)[0];
+                    const drawnRank = drawnCard.startsWith('JOKER') ? 'JOKER' : drawnCard.split('_')[1];
+                    const myHand = state.hands[playerId];
+                    const matchIndex = myHand.findIndex(card => (card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1]) === drawnRank);
+                    if (matchIndex > -1) {
+                        myHand.splice(matchIndex, 1);
+                    } else {
+                        myHand.push(drawnCard);
+                    }
+                    if (state.hands[action.targetPlayerId].length === 0) {
+                        state.winners.push({ id: action.targetPlayerId, rank: state.winners.length + 1 });
+                    }
+                    if (myHand.length === 0) {
+                        state.winners.push({ id: playerId, rank: state.winners.length + 1 });
+                    }
+                    babanukiLogic.setNextTurn(gameData);
+                }
+                return gameData;
+            },
+            setNextTurn: (gameData) => {
+                const state = gameData.gameState;
+                const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+                if (activePlayers.length <= 1) {
+                    if (activePlayers.length === 1) state.winners.push({ id: activePlayers[0].id, rank: gameData.players.length + 1 });
+                    gameData.status = 'finished';
+                    state.turn = null;
+                    return;
+                }
+                const currentTurnPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+                let nextPlayerIndex = (currentTurnPlayerIndex + 1) % gameData.players.length;
+                while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
+                    nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
+                }
+                state.turn = gameData.players[nextPlayerIndex].id;
+            },
+            handleLeave: (gameData, playerId) => {
+                const state = gameData.gameState;
+                if (!state.winners.some(w => w.id === playerId)) {
+                    state.winners.push({ id: playerId, rank: 99, left: true });
+                }
+                if (state.turn === playerId) {
+                    babanukiLogic.setNextTurn(gameData);
+                }
+                return gameData;
+            }
+        };
+        
+        gameLogics.shinkeisuijaku = {
+            initialize: (gameData) => {
+                const deck = CardUtils.shuffle(CardUtils.createDeck(0));
+                const boardCards = deck.map(card => ({ cardString: card, isFaceUp: false, isMatched: false }));
+                const scores = gameData.players.reduce((acc, p) => ({ ...acc, [p.id]: 0 }), {});
+                return { boardCards, scores, turn: gameData.players[0].id, flippedIndices: [], winners: [] };
+            },
+            render: (gameData) => {
+                GameManager.renderCommonLayout(gameData);
+                const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
+                myHandAreaCards.innerHTML = `<p class="text-center w-full">あなたのスコア: ${gameData.gameState.scores[userId] ?? 0}</p>`;
+                tableArea.innerHTML = '';
+                tableArea.className = 'flex-grow flex flex-col items-center justify-center bg-green-700 rounded-lg p-2 shadow-inner mb-2 relative min-h-[140px] grid-layout';
+                const state = gameData.gameState;
+                state.boardCards.forEach((card, index) => {
+                    const cardEl = CardUtils.createCardElement(card.cardString, card.isFaceUp);
+                    if (card.isMatched) { cardEl.classList.add('matched'); }
+                    else if (!card.isFaceUp && state.turn === userId && state.flippedIndices.length < 2) {
+                        cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'FLIP_CARD', index }));
+                    }
+                    tableArea.appendChild(cardEl);
+                });
+                let status = '';
+                if (gameData.status === 'finished') {
+                    let winnerText = 'ゲーム終了！';
+                    const maxScore = Math.max(...Object.values(state.scores));
+                    const winners = gameData.players.filter(p => state.scores[p.id] === maxScore);
+                    if (winners.length > 1) { winnerText += `勝者: ${winners.map(w => w.name).join(', ')} (引き分け)`; }
+                    else if (winners.length === 1) { winnerText += `勝者: ${winners[0].name}`; }
+                    status = winnerText;
+                } else if (state.turn === userId) {
+                    status = `あなたのターンです。カードを${2 - state.flippedIndices.length}枚めくってください。`;
+                } else {
+                    status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
+                }
+                gameStatusMessage.textContent = status;
+                if (state.flippedIndices.length === 2 && state.turn === userId) {
+                    const card1 = state.boardCards[state.flippedIndices[0]];
+                    const card2 = state.boardCards[state.flippedIndices[1]];
+                    const rank1 = card1.cardString.split('_')[1];
+                    const rank2 = card2.cardString.split('_')[1];
+                    if (rank1 !== rank2) {
+                        clearTimeout(clientSideTimer);
+                        clientSideTimer = setTimeout(() => { GameManager.handleAction({ type: 'CHECK_PAIR' }); }, 1000);
+                    }
+                }
+            },
+            update: (gameData, action, playerId) => {
+                let state = gameData.gameState;
+                if (state.turn !== playerId) return gameData;
+                if (action.type === 'FLIP_CARD') {
+                    if (state.flippedIndices.length >= 2 || state.boardCards[action.index].isFaceUp) { return gameData; }
+                    state.boardCards[action.index].isFaceUp = true;
+                    state.flippedIndices.push(action.index);
+                    if (state.flippedIndices.length === 2) {
+                        const card1 = state.boardCards[state.flippedIndices[0]];
+                        const card2 = state.boardCards[state.flippedIndices[1]];
+                        const rank1 = card1.cardString.split('_')[1];
+                        const rank2 = card2.cardString.split('_')[1];
+                        if (rank1 === rank2) {
+                            card1.isMatched = true; card2.isMatched = true; state.scores[playerId]++; state.flippedIndices = [];
+                            if (state.boardCards.every(c => c.isMatched)) { gameData.status = 'finished'; }
+                        }
+                    }
+                } else if (action.type === 'CHECK_PAIR') {
+                    state.boardCards[state.flippedIndices[0]].isFaceUp = false; state.boardCards[state.flippedIndices[1]].isFaceUp = false;
+                    state.flippedIndices = [];
+                    shinkeisuijakuLogic.setNextTurn(gameData);
+                }
+                return gameData;
+            },
+            setNextTurn: (gameData) => {
+                const state = gameData.gameState;
+                const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+                state.turn = gameData.players[(currentPlayerIndex + 1) % gameData.players.length].id;
+            },
+             handleLeave: (gameData, playerId) => {
+                if(gameData.gameState.turn === playerId) { shinkeisuijakuLogic.setNextTurn(gameData); }
+                return gameData;
+            }
+        };
+
+        gameLogics.doubt = doubtLogic;
+
+        // すべてのゲームロジックを割り当て
+        for (const key in gameLogics) {
+            if (gameLogics[key] === null) {
+                const logic = window[key + 'Logic'];
+                if(logic) gameLogics[key] = logic;
+            }
         }
 
-        element.innerHTML = `
-            <div>
-                <p class="font-semibold flex items-baseline">${item.name}${equippedMark} <span class="text-gray-400 ml-2">(x${itemStack.quantity})</span></p>
-                <p class="text-sm text-gray-400">売値: ${item.sellPrice} G</p>
-            </div>
-            <button class="rpg-button px-4 py-2 rounded" onclick="openSellModal('${itemStack.id}')" ${sellableQuantity <= 0 ? 'disabled' : ''}>売却</button>
-        `;
-        container.appendChild(element);
-    });
-}
 
-
-function renderPartyScreen() { /* ... (変更なし) ... */ }
-function renderPartyMemberDetails(index) { /* ... (変更なし) ... */ }
-
-function renderItemsScreen(filterType, clickedButton = null) {
-    if (clickedButton) {
-        clickedButton.parentElement.querySelectorAll('button').forEach(btn => btn.classList.add('opacity-60'));
-        clickedButton.classList.remove('opacity-60');
-    }
-
-    const container = document.getElementById('inventory-list');
-    container.innerHTML = '';
-    
-    const equipmentTypes = ['weapon', 'head', 'body', 'legs', 'accessory'];
-    let filteredItems;
-    if (filterType === 'equipment') {
-        filteredItems = gameData.items.filter(i => equipmentTypes.includes(DB.items[i.id].type));
-    } else {
-        filteredItems = gameData.items.filter(i => !equipmentTypes.includes(DB.items[i.id].type));
-    }
-
-    if (filteredItems.length === 0) {
-        container.innerHTML = '<p class="text-gray-400 col-span-full text-center">該当するアイテムはありません。</p>';
-        return;
-    }
-
-    filteredItems.forEach(itemStack => {
-        const item = DB.items[itemStack.id];
-        const equippedCount = getEquippedCount(itemStack.id);
-        let equippedMark = '';
-        if (equippedCount > 0) {
-            equippedMark = `<sup class="text-green-400 font-bold ml-1">E</sup>`;
-        }
-
-        const element = document.createElement('div');
-        element.className = 'bg-gray-700 p-3 rounded';
-        element.innerHTML = `
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="font-semibold flex items-baseline">${item.name}${equippedMark}</p>
-                    <p class="text-sm text-gray-400">${item.description}</p>
-                </div>
-                <p class="text-lg font-bold">x${itemStack.quantity}</p>
-            </div>
-        `;
-        container.appendChild(element);
-    });
-}
-
-// --- イベントリスナー設定 ---
-function setupEventListeners() {
-    document.getElementById('select-swordsman').addEventListener('click', () => initNewGame('剣士'));
-    document.getElementById('select-mage').addEventListener('click', () => initNewGame('魔導士'));
-    document.getElementById('show-import-btn').addEventListener('click', () => {
-        document.getElementById('new-game-selection').style.display = 'none';
-        document.getElementById('import-game-section').style.display = 'block';
-    });
-    document.getElementById('back-to-new-game-btn').addEventListener('click', () => {
-        document.getElementById('new-game-selection').style.display = 'block';
-        document.getElementById('import-game-section').style.display = 'none';
-    });
-    document.getElementById('import-data-btn').addEventListener('click', importGame);
-    document.querySelectorAll('button[data-screen]').forEach(button => {
-        button.addEventListener('click', () => switchScreen(button.dataset.screen));
-    });
-    document.getElementById('copy-data-button').addEventListener('click', () => {
-        const textarea = document.getElementById('export-data-textarea');
-        textarea.select();
-        document.execCommand('copy');
-        showNotification("セーブデータをコピーしました。", "success");
-    });
-    document.getElementById('reset-data-btn').addEventListener('click', resetGameData);
-    document.getElementById('purchase-qty-minus').addEventListener('click', () => { const i = document.getElementById('purchase-qty-input'); i.value = Math.max(1, parseInt(i.value) - 1); updatePurchaseModal(); });
-    document.getElementById('purchase-qty-plus').addEventListener('click', () => { const i = document.getElementById('purchase-qty-input'); i.value = Math.min(99, parseInt(i.value) + 1); updatePurchaseModal(); });
-    document.getElementById('purchase-qty-input').addEventListener('change', updatePurchaseModal);
-    document.getElementById('purchase-cancel-btn').addEventListener('click', () => { document.getElementById('purchase-modal').style.display = 'none'; });
-    document.getElementById('purchase-confirm-btn').addEventListener('click', buyItem);
-    document.getElementById('equipment-cancel-btn').addEventListener('click', () => { document.getElementById('equipment-modal').style.display = 'none'; });
-    document.getElementById('sell-qty-minus').addEventListener('click', () => { const i = document.getElementById('sell-qty-input'); i.value = Math.max(1, parseInt(i.value) - 1); updateSellModal(); });
-    document.getElementById('sell-qty-plus').addEventListener('click', () => { const i = document.getElementById('sell-qty-input'); i.value = Math.min(currentSell.maxQuantity, parseInt(i.value) + 1); updateSellModal(); });
-    document.getElementById('sell-qty-input').addEventListener('change', updateSellModal);
-    document.getElementById('sell-cancel-btn').addEventListener('click', () => { document.getElementById('sell-modal').style.display = 'none'; });
-    document.getElementById('sell-confirm-btn').addEventListener('click', sellItem);
-    document.getElementById('name-change-btn').addEventListener('click', openNameChangeModal);
-    document.getElementById('name-change-cancel-btn').addEventListener('click', () => { document.getElementById('name-change-modal').style.display = 'none'; });
-    document.getElementById('name-change-confirm-btn').addEventListener('click', changeName);
-}
-
-// NOTE: 省略した関数群
-generateStats=(playerClass)=>{const rand=(min,max)=>Math.floor(Math.random()*(max-min+1))+min;let stats={Li:rand(8,12),St:rand(8,12),In:rand(8,12),Pa:rand(8,12),Ag:rand(8,12)};if(playerClass==='剣士'){stats.St=rand(12,16);stats.In=rand(3,6)}else if(playerClass==='魔導士'){stats.In=rand(12,16);stats.St=rand(3,6)}return stats};
-switchScreen=(screenId)=>{document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active-screen'));document.getElementById(screenId+'-screen')?.classList.add('active-screen')};
-showTab=(tabId,clickedButton)=>{const tabPrefix=tabId.substring(0,tabId.indexOf('-tab-'));clickedButton.parentElement.querySelectorAll('button').forEach(btn=>btn.classList.add('opacity-60'));clickedButton.classList.remove('opacity-60');let currentElement=clickedButton.parentElement.nextElementSibling;while(currentElement&&currentElement.classList.contains(`${tabPrefix}-tab`)){currentElement.style.display='none';currentElement=currentElement.nextElementSibling}
-document.getElementById(tabId).style.display='block'};
-showConfirmation=(title,message,onConfirm)=>{const modal=document.getElementById('confirmation-modal');document.getElementById('confirmation-title').textContent=title;document.getElementById('confirmation-message').textContent=message;modal.style.display='flex';const okBtn=document.getElementById('confirm-ok-btn');const cancelBtn=document.getElementById('confirm-cancel-btn');const cleanup=()=>{modal.style.display='none';okBtn.removeEventListener('click',okHandler);cancelBtn.removeEventListener('click',cancelHandler)};const okHandler=()=>{onConfirm();cleanup()};const cancelHandler=()=>cleanup();okBtn.addEventListener('click',okHandler,{once:true});cancelBtn.addEventListener('click',cancelHandler,{once:true})};
-showNotification=(message,type='success')=>{const popup=document.getElementById('notification-popup');popup.textContent=message;popup.className=type;popup.classList.add('show');setTimeout(()=>{popup.classList.remove('show')},2500)};
-updateSellModal=()=>{const input=document.getElementById('sell-qty-input');currentSell.quantity=parseInt(input.value)||1;if(currentSell.quantity<1)currentSell.quantity=1;if(currentSell.quantity>currentSell.maxQuantity)currentSell.quantity=currentSell.maxQuantity;input.value=currentSell.quantity;document.getElementById('sell-total-price').textContent=currentSell.sellPrice*currentSell.quantity};
-sellItem=()=>{removeItemFromInventory(currentSell.itemId,currentSell.quantity);gameData.gold+=currentSell.sellPrice*currentSell.quantity;saveGame();renderAll();showNotification(`${DB.items[currentSell.itemId].name} を ${currentSell.quantity}個 売却しました。`,"success");document.getElementById('sell-modal').style.display='none'};
-addItemToInventory=(itemId,quantity)=>{const existingItem=gameData.items.find(i=>i.id===itemId);if(existingItem){existingItem.quantity+=quantity}else{gameData.items.push({id:itemId,quantity:quantity})}};
-removeItemFromInventory=(itemId,quantity)=>{const itemIndex=gameData.items.findIndex(i=>i.id===itemId);if(itemIndex>-1){gameData.items[itemIndex].quantity-=quantity;if(gameData.items[itemIndex].quantity<=0){gameData.items.splice(itemIndex,1)}}};
-getSlotType=(slot)=>{if(slot.startsWith('accessory'))return'accessory';return slot};
-renderShopList=(containerId,conditionList)=>{const container=document.getElementById(containerId);container.innerHTML='';conditionList.forEach(cond=>{if(cond.condition(gameData)){const item=DB.items[cond.itemId];const element=document.createElement('div');element.className='bg-gray-700 p-3 rounded flex justify-between items-center';element.innerHTML=`
-<div><p class="font-semibold">${item.name}</p><p class="text-sm text-gray-400">${item.description}</p></div>
-<button class="rpg-button px-4 py-2 rounded" onclick="openPurchaseModal('${cond.itemId}')">${item.price} G</button>`;container.appendChild(element)}})};
-renderPartyScreen=()=>{const listContainer=document.getElementById('party-member-list');listContainer.innerHTML='';gameData.party.forEach((member,index)=>{const card=document.createElement('button');card.className='party-member-card rpg-button p-2 rounded w-full md:w-24 text-left';card.onclick=()=>renderPartyMemberDetails(index);if(member){card.innerHTML=`<p class="font-bold">${member.name}</p><p class="text-sm">${member.class} Lv.${member.level}</p>`}else{card.innerHTML='<p class="text-gray-400">空き</p>'}
-listContainer.appendChild(card)});renderPartyMemberDetails(0)};
-renderPartyMemberDetails=(index)=>{document.querySelectorAll('.party-member-card').forEach((card,i)=>card.classList.toggle('active',i===index));const detailsContainer=document.getElementById('party-member-details');const member=gameData.party[index];if(!member){detailsContainer.innerHTML='<p class="text-gray-400 text-center">このスロットにメンバーはいません。</p>';return}
-const totalStats={...member.baseStats};Object.values(member.equipment).forEach(itemId=>{if(itemId&&DB.items[itemId]?.stats){Object.entries(DB.items[itemId].stats).forEach(([stat,value])=>{totalStats[stat]=(totalStats[stat]||0)+value})}});const statRow=(name,key)=>{const base=member.baseStats[key]||0;const equipBonus=totalStats[key]-base;return`<div class="grid grid-cols-3"><span>${name}</span><span class="text-right">${totalStats[key]}</span><span class="text-right text-green-400">${equipBonus>0?`(+${equipBonus})`:''}</span></div>`};const equipSlot=(name,key)=>{const itemId=member.equipment[key];const itemName=itemId?DB.items[itemId].name:'---';return`<button class="w-full text-left p-1 hover:bg-gray-700 rounded" onclick="openEquipmentModal(${index},'${key}')"><div class="flex justify-between"><span class="text-gray-400">${name}:</span> <span>${itemName}</span></div></button>`};detailsContainer.innerHTML=`
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><h3 class="text-xl font-bold mb-2">${member.name} - ${member.class} Lv.${member.level}</h3><div class="space-y-1 bg-gray-800 p-3 rounded">${statRow('生命 (Li)','Li')}${statRow('筋力 (St)','St')}${statRow('知性 (In)','In')}${statRow('忍耐 (Pa)','Pa')}${statRow('敏捷 (Ag)','Ag')}</div></div>
-<div><h3 class="text-xl font-bold mb-2">装備</h3><div class="space-y-1 bg-gray-800 p-3 rounded">${equipSlot('武器','weapon')}${equipSlot('頭具','head')}${equipSlot('胴具','body')}${equipSlot('脚具','legs')}${equipSlot('装飾品1','accessory1')}${equipSlot('装飾品2','accessory2')}</div></div></div>`};
-const importGame=()=>{const jsonString=document.getElementById('import-data-textarea').value;const errorSpan=document.getElementById('import-error');errorSpan.textContent='';try{const importedData=JSON.parse(jsonString);if(importedData&&importedData.party&&importedData.party[0].class){gameData=importedData;saveGame();document.getElementById('first-time-modal').style.display='none';renderAll();switchScreen('main-menu')}else{throw new Error('無効なデータ形式です。')}}catch(e){errorSpan.textContent=e.message}};
-const resetGameData=()=>{showConfirmation('本当にリセットしますか？','すべてのセーブデータが削除されます。',()=>{localStorage.removeItem('textRpgGameData');location.reload()})};
-const originalRenderGuild=()=>{const container=document.getElementById('field-progress-container');container.innerHTML='';if(!gameData.unlockedFields)return;gameData.unlockedFields.forEach(fieldId=>{const fieldInfo=DB.fields[fieldId];const progress=gameData.fieldProgress[fieldId];if(!fieldInfo||!progress)return;progress.overall=Math.floor((progress.monsterCompletion+progress.itemCompletion+progress.mapCompletion)/3);const element=document.createElement('div');element.className='bg-gray-800 p-4 rounded';element.innerHTML=`
-<h4 class="text-lg font-bold">${fieldInfo.name}</h4>
-<div class="space-y-1 mt-2"><p>総合達成度: ${progress.overall}%</p><p class="text-sm text-gray-400">図鑑: ${progress.monsterCompletion}% | アイテム: ${progress.itemCompletion}% | マップ: ${progress.mapCompletion}%</p></div>
-<button class="rpg-button px-4 py-1 mt-2 rounded ${progress.overall===100&&!progress.rewardClaimed?'':'opacity-50 cursor-not-allowed'}" ${progress.overall===100&&!progress.rewardClaimed?'':'disabled'}>${progress.rewardClaimed?'報酬受取済':'100%報酬'}</button>`;container.appendChild(element)})};renderGuild=originalRenderGuild;
-const originalRenderExplore=()=>{const container=document.getElementById('explore-field-list');container.innerHTML='';if(!gameData.unlockedFields)return;gameData.unlockedFields.forEach(fieldId=>{const fieldInfo=DB.fields[fieldId];if(!fieldInfo)return;const element=document.createElement('button');element.className='p-6 rounded rpg-button text-xl text-center';element.textContent=fieldInfo.name;container.appendChild(element)})};renderExplore=originalRenderExplore;
-const originalRenderMonsterBook=()=>{const container=document.getElementById('monster-list');container.innerHTML='';Object.entries(DB.monsters).forEach(([id,monster])=>{const isDiscovered=gameData.monsterLog[id]?.discovered||false;const element=document.createElement('div');element.className=`p-4 rounded ${isDiscovered?'bg-gray-700':'bg-gray-800 border border-dashed border-gray-600'}`;if(isDiscovered){element.innerHTML=`
-<h3 class="text-lg font-bold text-yellow-300">No.${monster.no} ${monster.name}</h3><p class="text-sm">種族: ${monster.race}</p><p class="text-sm">生息地: ${monster.habitat}</p><p class="mt-2 text-gray-300 text-sm italic">"${monster.story}"</p>`}else{element.innerHTML=`
-<h3 class="text-lg font-bold text-gray-500">No.${monster.no} ？？？</h3><p class="text-sm text-gray-500">種族: ？？？</p><p class="text-sm text-gray-500">生息地: ？？？</p>`}
-container.appendChild(element)})};renderMonsterBook=originalRenderMonsterBook;
-const originalRenderExportData=()=>{const textarea=document.getElementById('export-data-textarea');textarea.value=JSON.stringify(gameData,null,2)};renderExportData=originalRenderExportData;
-</script>
+        window.onload = initialize;
+    </script>
 </body>
 </html>
+
