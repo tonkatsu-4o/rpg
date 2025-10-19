@@ -110,9 +110,18 @@
                 <button data-game="shinkeisuijaku" class="game-select-btn w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">神経衰弱</button>
                 <button data-game="doubt" class="game-select-btn w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-4 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">ダウト</button>
             </div>
-             <div class="mt-8 text-center">
-                <p class="text-sm text-gray-400">あなたのID:</p>
-                <p id="user-id-display" class="text-xs text-gray-500 bg-gray-100 p-2 rounded break-all"></p>
+             <div class="mt-8 text-center space-y-4">
+                <div>
+                    <label for="display-name-input" class="text-sm text-gray-600">あなたの名前</label>
+                    <div class="flex items-center space-x-2 mt-1">
+                        <input type="text" id="display-name-input" class="flex-grow w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="名前を入力...">
+                        <button id="save-name-btn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md">保存</button>
+                    </div>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-400">あなたのID:</p>
+                    <p id="user-id-display" class="text-xs text-gray-500 bg-gray-100 p-2 rounded break-all"></p>
+                </div>
             </div>
         </div>
 
@@ -252,6 +261,8 @@
             myHandAreaCards: document.getElementById('my-hand-area-cards'),
             gameActionsArea: document.getElementById('game-actions-area'),
             gameStatusMessage: document.getElementById('game-status-message'),
+            displayNameInput: document.getElementById('display-name-input'),
+            saveNameBtn: document.getElementById('save-name-btn'),
         };
 
         // --- 初期化 & 認証 ---
@@ -262,13 +273,23 @@
             onAuthStateChanged(auth, user => handleAuthState(user));
             setupEventListeners();
             setupDaifugoRules();
+            
+            // ローカルストレージから名前を読み込む
+            const savedName = localStorage.getItem('cardGamePlayerName');
+            if (savedName) {
+                userDisplayName = savedName;
+                allDomElements.displayNameInput.value = savedName;
+            }
         }
 
         async function handleAuthState(user) {
             if (user) {
                 userId = user.uid;
-                userDisplayName = `Player-${userId.substring(0, 4)}`;
                 allDomElements.userIdDisplay.textContent = userId;
+                if (!userDisplayName) { // 名前が設定されていなければデフォルト名を生成
+                    userDisplayName = `Player-${userId.substring(0, 4)}`;
+                    allDomElements.displayNameInput.value = userDisplayName;
+                }
             } else {
                 try {
                     await (typeof __initial_auth_token !== 'undefined' && __initial_auth_token
@@ -290,6 +311,8 @@
             allDomElements.closeMessageBtn.addEventListener('click', () => allDomElements.messageModal.classList.add('hidden'));
             allDomElements.backToHomeBtn.addEventListener('click', resetLobby);
             allDomElements.ruleInfoBtn.addEventListener('click', showDaifugoRuleInfo);
+            allDomElements.saveNameBtn.addEventListener('click', savePlayerName);
+            allDomElements.joinCodeInput.addEventListener('input', e => e.target.value = e.target.value.toUpperCase());
         }
         
         // --- 画面遷移 & UIヘルパー ---
@@ -301,12 +324,44 @@
         };
         const generateGameId = () => Array(6).fill(0).map(() => 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789'[Math.floor(Math.random() * 35)]).join('');
 
+        // --- 名前変更ロジック ---
+        async function savePlayerName() {
+            const newName = allDomElements.displayNameInput.value.trim();
+            if (newName && newName.length > 0 && newName.length <= 10) {
+                userDisplayName = newName;
+                localStorage.setItem('cardGamePlayerName', newName);
+                showMessage('名前を保存しました。');
+                
+                // もしルームに参加中なら、Firestoreのデータも更新
+                if (currentGameId && localGameState.players?.some(p => p.id === userId)) {
+                    const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, currentGameId);
+                    try {
+                        await runTransaction(db, async (transaction) => {
+                            const gameDoc = await transaction.get(gameRef);
+                            if (!gameDoc.exists()) return;
+                            const gameData = gameDoc.data();
+                            const playerIndex = gameData.players.findIndex(p => p.id === userId);
+                            if (playerIndex > -1) {
+                                gameData.players[playerIndex].name = newName;
+                                transaction.update(gameRef, { players: gameData.players });
+                            }
+                        });
+                    } catch (error) {
+                        console.error("Error updating name in lobby:", error);
+                    }
+                }
+            } else {
+                showMessage('名前は1文字以上10文字以下で入力してください。');
+            }
+        }
+
         // --- ホーム画面ロジック ---
         function handleGameSelect(e) {
             if (!auth.currentUser) return showMessage("ユーザー情報が読み込まれていません。");
             selectedGameType = e.currentTarget.dataset.game;
             allDomElements.lobbyTitle.textContent = `${GAME_NAMES[selectedGameType]} のロビー`;
             allDomElements.daifugoRulesSection.classList.toggle('hidden', selectedGameType !== 'daifugo');
+            allDomElements.tableArea.classList.remove('grid-layout'); // 前のゲームのレイアウトをリセット
             showScreen('lobby');
         }
 
@@ -349,7 +404,7 @@
         }
 
         async function joinGame() {
-            const gameId = allDomElements.joinCodeInput.value.toUpperCase().trim();
+            const gameId = allDomElements.joinCodeInput.value.trim();
             if (!gameId) return showMessage("共有コードを入力してください。");
             const gameRef = doc(db, `artifacts/${appId}/public/data/card_games`, gameId);
             try {
@@ -533,389 +588,542 @@
         };
         
         // --- 各ゲームのロジック ---
-        const gameLogics = {
-            daifugo: null,
-            babanuki: null,
-            shinkeisuijaku: null,
-            doubt: null,
-        };
-        
         // ================== 大富豪ロジック ==================
         const daifugoLogic = { /* ... 省略 ... */ };
-        gameLogics.daifugo = daifugoLogic;
 
         // ================== ばば抜きロジック ==================
         const babanukiLogic = { /* ... 省略 ... */ };
-        gameLogics.babanuki = babanukiLogic;
 
         // ================== 神経衰弱ロジック ==================
         const shinkeisuijakuLogic = { /* ... 省略 ... */ };
-        gameLogics.shinkeisuijaku = shinkeisuijakuLogic;
         
         // ================== ダウトロジック ==================
-        const doubtLogic = {
-            initialize: (gameData) => {
-                const deck = CardUtils.shuffle(CardUtils.createDeck(0));
-                const hands = CardUtils.deal(deck, gameData.players.length);
-                const playerHands = {};
-                let startingPlayer = null;
-                gameData.players.forEach((p, i) => { 
-                    playerHands[p.id] = hands[i]; 
-                    if(hands[i].includes('S_1')) startingPlayer = p.id;
-                });
-                return {
-                    hands: playerHands,
-                    turn: startingPlayer || gameData.players[0].id,
-                    field: [],
-                    expectedRank: 1,
-                    lastPlay: null, // {playerId, claimedRank, count}
-                    winners: [],
-                    log: "ダウトスタート！"
-                };
-            },
-            sortHand: (hand) => hand.sort((a,b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1])),
-            render: (gameData) => {
-                GameManager.renderCommonLayout(gameData, doubtLogic.sortHand);
-                const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
-                const state = gameData.gameState;
-                
-                tableArea.innerHTML = '';
-                if(state.field.length > 0) {
-                    const pile = document.createElement('div');
-                    pile.className = 'relative';
-                    pile.appendChild(CardUtils.createCardElement('', false));
-                    pile.innerHTML += `<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl font-bold text-white">${state.field.length}</div>`;
-                    tableArea.appendChild(pile);
-                } else {
-                    tableArea.innerHTML = '<p class="text-gray-300">場にカードはありません</p>';
-                }
-                
-                myHandAreaCards.querySelectorAll('.card').forEach(c => c.onclick = () => c.classList.toggle('selected'));
-                gameActionsArea.innerHTML = '';
-                
-                const myRank = state.winners.find(w => w.id === userId)?.rank;
-                if(myRank === 1) {
-                    gameActionsArea.innerHTML = '<p class="text-lg font-bold text-yellow-300">あなたの勝ちです！</p>';
-                } else if (state.turn === userId) {
-                    gameActionsArea.innerHTML = '<button id="play-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">出す</button>';
-                    if (state.lastPlay) {
-                        gameActionsArea.innerHTML += '<button id="doubt-btn" class="ml-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">ダウト！</button>';
-                    }
-                    document.getElementById('play-btn')?.addEventListener('click', () => {
-                        const selected = Array.from(myHandAreaCards.querySelectorAll('.card.selected')).map(c => c.dataset.card);
-                        if (selected.length > 0) GameManager.handleAction({ type: 'PLAY_CARDS', cards: selected });
-                        else showMessage('出すカードを1枚以上選択してください。');
-                    });
-                    document.getElementById('doubt-btn')?.addEventListener('click', () => GameManager.handleAction({ type: 'CALL_DOUBT' }));
-                }
+        const doubtLogic = { /* ... 省略 ... */ };
 
-                let status = state.log;
-                if(gameData.status !== 'finished') {
-                    if (state.turn === userId) {
-                         const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
-                         status = `あなたのターンです。「${rankDisplay}」を出してください。`;
-                    } else {
-                        status = `${gameData.players.find(p=>p.id === state.turn)?.name ?? ''}さんのターンです。`;
-                    }
-                }
-                gameStatusMessage.textContent = status;
-            },
-            update: (gameData, action, playerId) => {
-                let state = gameData.gameState;
-                if (state.winners.some(w => w.id === playerId)) return gameData;
-
-                switch (action.type) {
-                    case 'PLAY_CARDS': {
-                        if (state.turn !== playerId) return gameData;
-                        state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
-                        const playData = { cards: action.cards, playerId: playerId, claimedRank: state.expectedRank, count: action.cards.length };
-                        state.field.push(playData);
-                        state.lastPlay = playData;
-                        const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
-                        state.log = `${userDisplayName}が「${rankDisplay}」を${action.cards.length}枚出しました。`;
-                        if (state.hands[playerId].length === 0) {
-                            state.winners.push({ id: playerId, rank: 1 });
-                            gameData.status = 'finished';
-                            state.log = `${userDisplayName}があがりました！`;
-                            return gameData;
-                        }
-                        doubtLogic.setNextTurn(gameData);
-                        break;
-                    }
-                    case 'CALL_DOUBT': {
-                        if (state.turn !== playerId || !state.lastPlay) return gameData;
-                        const lastPlay = state.lastPlay;
-                        const lastPlayerId = lastPlay.playerId;
-                        const isLie = lastPlay.cards.some(c => parseInt(c.split('_')[1]) !== lastPlay.claimedRank);
-                        const allFieldCards = state.field.flatMap(p => p.cards);
-                        
-                        let penaltyPlayerId, logMsg;
-                        if (isLie) { // ダウト成功
-                            penaltyPlayerId = lastPlayerId;
-                            logMsg = `${userDisplayName}のダウト成功！ ${gameData.players.find(p=>p.id===lastPlayerId).name}が場のカードを全て引き取ります。`;
-                        } else { // ダウト失敗
-                            penaltyPlayerId = playerId;
-                            logMsg = `${userDisplayName}のダウト失敗！場のカードを全て引き取ります。`;
-                        }
-                        
-                        state.hands[penaltyPlayerId].push(...allFieldCards);
-                        state.field = [];
-                        state.lastPlay = null;
-                        state.log = logMsg;
-                        
-                        if (isLie) { // 成功時はダウトした人から
-                            state.turn = playerId;
-                        } else { // 失敗時はダウトした人の次から
-                           doubtLogic.setNextTurn(gameData);
-                        }
-                        break;
-                    }
-                }
-                return gameData;
-            },
-            setNextTurn: (gameData) => {
-                const state = gameData.gameState;
-                const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
-                let nextPlayerIndex = (currentPlayerIndex + 1) % gameData.players.length;
-                while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
-                    nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
-                }
-                state.turn = gameData.players[nextPlayerIndex].id;
-                state.expectedRank = (state.expectedRank % 13) + 1;
-            },
-            handleLeave: (gameData, playerId) => {
-                if(gameData.gameState.turn === playerId) {
-                    doubtLogic.setNextTurn(gameData);
-                }
-                return gameData;
-            }
-        };
-
-        gameLogics.babanuki = {
-            initialize: (gameData) => {
-                const deck = CardUtils.shuffle(CardUtils.createDeck(1));
-                const hands = CardUtils.deal(deck, gameData.players.length);
-                const playerHands = {};
-                gameData.players.forEach((p, i) => { playerHands[p.id] = babanukiLogic.removeInitialPairs(hands[i]); });
-                const startingPlayer = gameData.players[Math.floor(Math.random() * gameData.players.length)].id;
-                return { hands: playerHands, turn: startingPlayer, winners: [], hoverState: null, log: "ばば抜きスタート！" };
-            },
-            removeInitialPairs: (hand) => {
-                const rankMap = new Map();
-                hand.forEach(card => {
-                    const rank = card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1];
-                    if (!rankMap.has(rank)) rankMap.set(rank, []);
-                    rankMap.get(rank).push(card);
-                });
-                const finalHand = [];
-                for (const cards of rankMap.values()) {
-                    if (cards.length % 2 !== 0) finalHand.push(cards[0]);
-                }
-                return finalHand;
-            },
-            render: (gameData) => {
-                GameManager.renderCommonLayout(gameData, (hand) => CardUtils.shuffle([...hand]));
-                const { opponentsArea, myHandAreaCards, gameActionsArea, gameStatusMessage, tableArea } = allDomElements;
-                tableArea.innerHTML = '';
-                const state = gameData.gameState;
-                const myRank = state.winners.find(w => w.id === userId)?.rank;
-                let status = '';
-                const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
-                const turnPlayerIdxInActive = activePlayers.findIndex(p => p.id === state.turn);
-                const targetPlayerOfTurn = activePlayers[(turnPlayerIdxInActive + activePlayers.length - 1) % activePlayers.length];
-
-                if (gameData.status === 'finished') {
-                    status = 'ゲーム終了！';
-                    if (myRank > gameData.players.length) gameActionsArea.innerHTML = `<p class="text-lg font-bold text-red-400">あなたの負けです！</p>`;
-                    else gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
-                } else if (myRank) {
-                    status = '勝ち抜け！他のプレイヤーを待っています...';
-                    gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
-                } else if (state.turn === userId) {
-                    const targetPlayer = targetPlayerOfTurn;
-                    status = `${targetPlayer.name}さんからカードを1枚引いてください。`;
-                    const targetPlayerElement = opponentsArea.querySelector(`[data-player-id="${targetPlayer.id}"]`);
-                    if (targetPlayerElement) {
-                        const cardContainer = targetPlayerElement.querySelector('.opponent-card-container');
-                        cardContainer.innerHTML = '';
-                        cardContainer.classList.add('interactive');
-                        const targetHandSize = state.hands[targetPlayer.id]?.length || 0;
-                        for (let i = 0; i < targetHandSize; i++) {
-                            const cardEl = CardUtils.createCardElement('', false);
-                            cardEl.style.cursor = 'pointer';
-                            cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'DRAW_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
-                            cardEl.addEventListener('mouseover', () => GameManager.handleAction({ type: 'HOVER_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
-                            cardEl.addEventListener('mouseout', () => GameManager.handleAction({ type: 'UNHOVER_CARD' }));
-                            cardContainer.appendChild(cardEl);
-                        }
-                    }
-                } else {
-                    status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
-                    if (targetPlayerOfTurn?.id === userId && state.hoverState) {
-                         const cardElements = myHandAreaCards.querySelectorAll('.card');
-                         if(cardElements[state.hoverState.cardIndex]) {
-                            cardElements[state.hoverState.cardIndex].classList.add('hovered');
-                         }
-                    }
-                }
-                gameStatusMessage.textContent = status;
-            },
-            update: (gameData, action, playerId) => {
-                let state = gameData.gameState;
-                if (action.type === 'HOVER_CARD' && state.turn === playerId) {
-                    gameData.gameState.hoverState = { targetPlayerId: action.targetPlayerId, cardIndex: action.cardIndex };
-                    return gameData;
-                }
-                if (action.type === 'UNHOVER_CARD' && state.turn === playerId) {
-                    gameData.gameState.hoverState = null;
-                    return gameData;
-                }
-                if (state.turn !== playerId || state.winners.some(w => w.id === playerId)) return gameData;
-                if (action.type === 'DRAW_CARD') {
-                    state.hoverState = null;
-                    const targetHand = state.hands[action.targetPlayerId];
-                    if (!targetHand || targetHand.length === 0) return gameData;
-                    const drawnCardIndex = Math.floor(Math.random() * targetHand.length);
-                    const drawnCard = targetHand.splice(drawnCardIndex, 1)[0];
-                    const drawnRank = drawnCard.startsWith('JOKER') ? 'JOKER' : drawnCard.split('_')[1];
-                    const myHand = state.hands[playerId];
-                    const matchIndex = myHand.findIndex(card => (card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1]) === drawnRank);
-                    if (matchIndex > -1) {
-                        myHand.splice(matchIndex, 1);
-                    } else {
-                        myHand.push(drawnCard);
-                    }
-                    if (state.hands[action.targetPlayerId].length === 0) {
-                        state.winners.push({ id: action.targetPlayerId, rank: state.winners.length + 1 });
-                    }
-                    if (myHand.length === 0) {
-                        state.winners.push({ id: playerId, rank: state.winners.length + 1 });
-                    }
-                    babanukiLogic.setNextTurn(gameData);
-                }
-                return gameData;
-            },
-            setNextTurn: (gameData) => {
-                const state = gameData.gameState;
-                const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
-                if (activePlayers.length <= 1) {
-                    if (activePlayers.length === 1) state.winners.push({ id: activePlayers[0].id, rank: gameData.players.length + 1 });
-                    gameData.status = 'finished';
-                    state.turn = null;
-                    return;
-                }
-                const currentTurnPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
-                let nextPlayerIndex = (currentTurnPlayerIndex + 1) % gameData.players.length;
-                while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
-                    nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
-                }
-                state.turn = gameData.players[nextPlayerIndex].id;
-            },
-            handleLeave: (gameData, playerId) => {
-                const state = gameData.gameState;
-                if (!state.winners.some(w => w.id === playerId)) {
-                    state.winners.push({ id: playerId, rank: 99, left: true });
-                }
-                if (state.turn === playerId) {
-                    babanukiLogic.setNextTurn(gameData);
-                }
-                return gameData;
-            }
+        const gameLogics = {
+            daifugo: daifugoLogic,
+            babanuki: babanukiLogic,
+            shinkeisuijaku: shinkeisuijakuLogic,
+            doubt: doubtLogic,
         };
         
-        gameLogics.shinkeisuijaku = {
-            initialize: (gameData) => {
-                const deck = CardUtils.shuffle(CardUtils.createDeck(0));
-                const boardCards = deck.map(card => ({ cardString: card, isFaceUp: false, isMatched: false }));
-                const scores = gameData.players.reduce((acc, p) => ({ ...acc, [p.id]: 0 }), {});
-                return { boardCards, scores, turn: gameData.players[0].id, flippedIndices: [], winners: [] };
-            },
-            render: (gameData) => {
-                GameManager.renderCommonLayout(gameData);
-                const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
-                myHandAreaCards.innerHTML = `<p class="text-center w-full">あなたのスコア: ${gameData.gameState.scores[userId] ?? 0}</p>`;
-                tableArea.innerHTML = '';
-                tableArea.className = 'flex-grow flex flex-col items-center justify-center bg-green-700 rounded-lg p-2 shadow-inner mb-2 relative min-h-[140px] grid-layout';
-                const state = gameData.gameState;
-                state.boardCards.forEach((card, index) => {
-                    const cardEl = CardUtils.createCardElement(card.cardString, card.isFaceUp);
-                    if (card.isMatched) { cardEl.classList.add('matched'); }
-                    else if (!card.isFaceUp && state.turn === userId && state.flippedIndices.length < 2) {
-                        cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'FLIP_CARD', index }));
-                    }
-                    tableArea.appendChild(cardEl);
+        // ================== 大富豪ロジック詳細 ==================
+        daifugoLogic.getCardStrength = (card, isReversed = false, isRoundReversed = false) => {
+            if (card.startsWith('JOKER')) return isReversed ? 0 : 99;
+            const rank = parseInt(card.split('_')[1]);
+            let strength = rank; if (rank <= 2) strength += 13;
+            const finalReversed = isReversed !== isRoundReversed;
+            return finalReversed ? 16 - strength : strength;
+        };
+        daifugoLogic.sortHand = (hand, gameState) => hand.sort((a, b) => daifugoLogic.getCardStrength(a, gameState.isReversed, gameState.isRoundReversed) - daifugoLogic.getCardStrength(b, gameState.isReversed, gameState.isRoundReversed));
+        daifugoLogic.initialize = (gameData) => {
+            const deck = CardUtils.shuffle(CardUtils.createDeck(2));
+            const hands = CardUtils.deal(deck, gameData.players.length);
+            const playerHands = {};
+            let startingPlayer = gameData.players[Math.floor(Math.random() * gameData.players.length)].id;
+            gameData.players.forEach((p, i) => { playerHands[p.id] = hands[i]; });
+            return { hands: playerHands, turn: startingPlayer, field: { cards: [], player: null, suit: null }, passedPlayers: [], winners: [], isReversed: false, isRoundReversed: false, isShibari: false, shibariSuit: null, log: "大富豪スタート！", rules: gameData.rules, subTurn: null };
+        };
+        daifugoLogic.render = (gameData) => {
+            GameManager.renderCommonLayout(gameData, daifugoLogic.sortHand);
+            const { tableArea, myHandAreaCards, gameActionsArea, gameStatusMessage } = allDomElements;
+            tableArea.innerHTML = '';
+            if (gameData.gameState.field.cards.length > 0) {
+                const fieldCardsEl = document.createElement('div'); fieldCardsEl.className = 'flex -space-x-8';
+                gameData.gameState.field.cards.forEach(c => fieldCardsEl.appendChild(CardUtils.createCardElement(c)));
+                const lastName = gameData.players.find(p => p.id === gameData.gameState.field.player)?.name ?? '';
+                tableArea.innerHTML = `<p class="text-xs text-center mb-1 text-gray-200">出した人: ${lastName}</p>`;
+                tableArea.appendChild(fieldCardsEl);
+            } else { tableArea.innerHTML = '<p class="text-gray-300">場は流れています</p>'; }
+            const myRank = gameData.gameState.winners.find(w => w.id === userId)?.rank;
+            myHandAreaCards.querySelectorAll('.card').forEach(c => { c.onclick = () => c.classList.toggle('selected'); });
+            let status = '';
+            if (gameData.gameState.isReversed) status += '⚡革命中 ';
+            if (gameData.gameState.isShibari) status += `⛓${gameData.gameState.shibariSuit}しばり `;
+            if (gameData.gameState.isRoundReversed) status += '🔄11バック中 ';
+            if (myRank) {
+                gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
+                status = 'ゲーム終了！';
+            } else if (gameData.gameState.subTurn && gameData.gameState.subTurn.player === userId) {
+                const sub = gameData.gameState.subTurn;
+                const actionText = sub.type === 'SEVEN_PASS' ? '渡す' : '捨てる';
+                status = `${actionText}カードを ${sub.count} 枚選択してください。`;
+                gameActionsArea.innerHTML = `<button id="confirm-sub-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">決定</button>`;
+                document.getElementById('confirm-sub-btn').addEventListener('click', () => {
+                    const selected = Array.from(myHandAreaCards.querySelectorAll('.card.selected')).map(c => c.dataset.card);
+                    if(selected.length !== sub.count) return showMessage(`${sub.count}枚選択してください。`);
+                    const actionType = sub.type === 'SEVEN_PASS' ? 'PASS_CARDS' : 'DISCARD_CARDS';
+                    GameManager.handleAction({ type: actionType, cards: selected });
                 });
-                let status = '';
-                if (gameData.status === 'finished') {
-                    let winnerText = 'ゲーム終了！';
-                    const maxScore = Math.max(...Object.values(state.scores));
-                    const winners = gameData.players.filter(p => state.scores[p.id] === maxScore);
-                    if (winners.length > 1) { winnerText += `勝者: ${winners.map(w => w.name).join(', ')} (引き分け)`; }
-                    else if (winners.length === 1) { winnerText += `勝者: ${winners[0].name}`; }
-                    status = winnerText;
-                } else if (state.turn === userId) {
-                    status = `あなたのターンです。カードを${2 - state.flippedIndices.length}枚めくってください。`;
-                } else {
-                    status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
+            } else if (gameData.gameState.turn === userId) {
+                status += "あなたのターンです。";
+                gameActionsArea.innerHTML = `<button id="play-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">出す</button>`;
+                if(gameData.gameState.field.cards.length > 0) gameActionsArea.innerHTML += `<button id="pass-btn" class="ml-4 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">パス</button>`;
+                document.getElementById('play-btn')?.addEventListener('click', () => {
+                    const selected = Array.from(myHandAreaCards.querySelectorAll('.card.selected')).map(c => c.dataset.card);
+                    if(selected.length > 0) GameManager.handleAction({ type: 'PLAY_CARDS', cards: selected });
+                });
+                document.getElementById('pass-btn')?.addEventListener('click', () => GameManager.handleAction({ type: 'PASS' }));
+            } else {
+                const currentActor = gameData.gameState.turn || gameData.gameState.subTurn?.player;
+                status += `${gameData.players.find(p=>p.id === currentActor)?.name ?? ''}さんのターンです。`;
+            }
+            if (gameData.status === 'finished' && !myRank) {
+                 const lastPlayer = gameData.players.find(p => !gameData.gameState.winners.some(w => w.id === p.id));
+                 if(lastPlayer?.id === userId) {
+                     gameActionsArea.innerHTML = `<p class="text-lg font-bold text-red-400">あなたはビリです！</p>`;
+                 }
+            }
+            gameStatusMessage.textContent = status;
+        };
+        daifugoLogic.update = (gameData, action, playerId) => {
+            let state = gameData.gameState;
+            if ((state.turn !== playerId && state.subTurn?.player !== playerId) || state.winners.some(w => w.id === playerId)) return gameData;
+            switch (action.type) {
+                case 'PLAY_CARDS': {
+                    if (state.subTurn) return gameData;
+                    const { isValid, combination } = daifugoLogic.validatePlay(state, action.cards, playerId); if (!isValid) return gameData;
+                    state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
+                    state.field = { cards: action.cards, player: playerId, suit: combination.suit };
+                    state.passedPlayers = []; let flowReset = false;
+                    if (state.rules.revolution && combination.isRevolution) state.isReversed = !state.isReversed;
+                    if (state.rules.elevenBack && combination.rank === 11) state.isRoundReversed = !state.isRoundReversed;
+                    if (state.rules.shibari) { state.isShibari = combination.suit && state.field.suit === combination.suit; state.shibariSuit = state.isShibari ? combination.suit : null; }
+                    if (state.rules.eightCut && combination.rank === 8) { daifugoLogic.resetField(state, playerId); flowReset = true; }
+                    if (state.hands[playerId].length === 0) { state.winners.push({ id: playerId, rank: state.winners.length + 1 }); }
+                    if (gameData.players.filter(p => !state.winners.some(w => w.id === p.id)).length <= 1) return daifugoLogic.endGame(gameData);
+                    if (state.rules.sevenPass && combination.rank === 7) { state.subTurn = { type: 'SEVEN_PASS', player: playerId, count: action.cards.length }; return gameData; }
+                    if (state.rules.tenDiscard && combination.rank === 10) { state.subTurn = { type: 'TEN_DISCARD', player: playerId, count: action.cards.length }; return gameData; }
+                    if(!flowReset) daifugoLogic.setNextTurn(gameData);
+                    break;
                 }
-                gameStatusMessage.textContent = status;
-                if (state.flippedIndices.length === 2 && state.turn === userId) {
+                case 'PASS': {
+                    if (state.subTurn || state.field.cards.length === 0) return gameData;
+                    state.passedPlayers.push(playerId); daifugoLogic.setNextTurn(gameData); break;
+                }
+                case 'PASS_CARDS': {
+                    if (!state.subTurn || state.subTurn.type !== 'SEVEN_PASS' || state.subTurn.player !== playerId || action.cards.length !== state.subTurn.count) return gameData;
+                    const currentIdx = gameData.players.findIndex(p => p.id === playerId);
+                    let nextPlayerIdx = (currentIdx + 1) % gameData.players.length;
+                    while(state.winners.some(w=>w.id === gameData.players[nextPlayerIdx].id)){ nextPlayerIdx = (nextPlayerIdx + 1) % gameData.players.length; }
+                    const nextPlayerId = gameData.players[nextPlayerIdx].id;
+                    state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
+                    state.hands[nextPlayerId].push(...action.cards);
+                    state.subTurn = null;
+                    if (state.hands[playerId].length === 0) { state.winners.push({ id: playerId, rank: state.winners.length + 1 }); }
+                    daifugoLogic.setNextTurn(gameData); break;
+                }
+                case 'DISCARD_CARDS': {
+                    if (!state.subTurn || state.subTurn.type !== 'TEN_DISCARD' || state.subTurn.player !== playerId || action.cards.length !== state.subTurn.count) return gameData;
+                    state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
+                    state.subTurn = null;
+                    if (state.hands[playerId].length === 0) { state.winners.push({ id: playerId, rank: state.winners.length + 1 }); }
+                    daifugoLogic.setNextTurn(gameData); break;
+                }
+            }
+            return gameData;
+        };
+        daifugoLogic.setNextTurn = (gameData) => {
+            const state = gameData.gameState;
+            const active = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+            if (active.length > 1 && state.passedPlayers.length >= active.length - 1) {
+                 daifugoLogic.resetField(state, state.field.player); 
+                 if (gameData.players.filter(p => !state.winners.some(w => w.id === p.id)).length <= 1) return daifugoLogic.endGame(gameData);
+                 return; 
+            }
+            if (active.length <= 1) return daifugoLogic.endGame(gameData);
+            const currentIdx = gameData.players.findIndex(p => p.id === state.turn);
+            let nextIdx = (currentIdx + 1) % gameData.players.length;
+            while (state.winners.some(w => w.id === gameData.players[nextIdx].id) || state.passedPlayers.includes(gameData.players[nextIdx].id)) {
+                nextIdx = (nextIdx + 1) % gameData.players.length;
+            }
+            state.turn = gameData.players[nextIdx].id;
+        };
+        daifugoLogic.resetField = (state, nextPlayerId) => {
+            state.field = { cards: [], player: null, suit: null }; state.passedPlayers = [];
+            state.isShibari = false; state.shibariSuit = null; state.isRoundReversed = false;
+            state.turn = nextPlayerId;
+        };
+        daifugoLogic.validatePlay = (state, cards) => {
+            if (cards.length === 0) return { isValid: false };
+            const getRank = c => c.startsWith('JOKER') ? 'JOKER' : parseInt(c.split('_')[1]);
+            const getSuit = c => c.startsWith('JOKER') ? null : c.split('_')[0];
+            const ranks = cards.map(getRank); const uniqueRanks = [...new Set(ranks.filter(r => r !== 'JOKER'))];
+            if (uniqueRanks.length > 1) return { isValid: false }; // 階段は未実装
+            const combination = { rank: uniqueRanks[0], suit: (cards.length === 1 || [...new Set(cards.map(getSuit))].length === 1) ? getSuit(cards[0]) : null, isRevolution: cards.length >= 4 };
+            if (state.isShibari && combination.suit && combination.suit !== state.shibariSuit) return { isValid: false };
+            if (state.field.cards.length > 0) {
+                if(cards.length !== state.field.cards.length) return { isValid: false };
+                const myStrength = daifugoLogic.getCardStrength(cards[0], state.isReversed, state.isRoundReversed);
+                const fieldStrength = daifugoLogic.getCardStrength(state.field.cards[0], state.isReversed, state.isRoundReversed);
+                if (myStrength <= fieldStrength) return { isValid: false };
+            }
+            return { isValid: true, combination };
+        };
+        daifugoLogic.endGame = (gameData) => {
+            const state = gameData.gameState;
+            const active = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+            if(active.length === 1) { state.winners.push({ id: active[0].id, rank: state.winners.length + 1 }); }
+            gameData.status = 'finished'; state.turn = null; state.subTurn = null;
+            return gameData;
+        };
+        daifugoLogic.handleLeave = (gameData, playerId) => {
+            const state = gameData.gameState;
+            if(!state.winners.some(w => w.id === playerId)) { state.winners.push({ id: playerId, rank: 99, left: true }); }
+            if(state.turn === playerId) daifugoLogic.setNextTurn(gameData);
+            else if(state.subTurn?.player === playerId) { state.subTurn = null; daifugoLogic.setNextTurn(gameData); }
+            return gameData;
+        };
+        
+        // ================== ばば抜きロジック詳細 ==================
+        babanukiLogic.initialize = (gameData) => {
+            const deck = CardUtils.shuffle(CardUtils.createDeck(1));
+            const hands = CardUtils.deal(deck, gameData.players.length);
+            const playerHands = {};
+            gameData.players.forEach((p, i) => { playerHands[p.id] = babanukiLogic.removeInitialPairs(hands[i]); });
+            const startingPlayer = gameData.players[Math.floor(Math.random() * gameData.players.length)].id;
+            return { hands: playerHands, turn: startingPlayer, winners: [], hoverState: null, log: "ばば抜きスタート！" };
+        };
+        babanukiLogic.removeInitialPairs = (hand) => {
+            const rankMap = new Map();
+            hand.forEach(card => {
+                const rank = card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1];
+                if (!rankMap.has(rank)) rankMap.set(rank, []);
+                rankMap.get(rank).push(card);
+            });
+            const finalHand = [];
+            for (const cards of rankMap.values()) {
+                if (cards.length % 2 !== 0) finalHand.push(cards[0]);
+            }
+            return finalHand;
+        };
+        babanukiLogic.render = (gameData) => {
+            GameManager.renderCommonLayout(gameData, (hand) => CardUtils.shuffle([...hand]));
+            const { opponentsArea, myHandAreaCards, gameActionsArea, gameStatusMessage, tableArea } = allDomElements;
+            tableArea.innerHTML = '';
+            const state = gameData.gameState;
+            const myRank = state.winners.find(w => w.id === userId)?.rank;
+            let status = '';
+            const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+            const turnPlayerIdxInActive = activePlayers.findIndex(p => p.id === state.turn);
+            const targetPlayerOfTurn = activePlayers[(turnPlayerIdxInActive + activePlayers.length - 1) % activePlayers.length];
+
+            if (gameData.status === 'finished') {
+                status = 'ゲーム終了！';
+                if (myRank > gameData.players.length) gameActionsArea.innerHTML = `<p class="text-lg font-bold text-red-400">あなたの負けです！</p>`;
+                else gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
+            } else if (myRank) {
+                status = '勝ち抜け！他のプレイヤーを待っています...';
+                gameActionsArea.innerHTML = `<p class="text-lg font-bold text-yellow-300">あなたは ${myRank} 位です！</p>`;
+            } else if (state.turn === userId) {
+                const targetPlayer = targetPlayerOfTurn;
+                status = `${targetPlayer.name}さんからカードを1枚引いてください。`;
+                const targetPlayerElement = opponentsArea.querySelector(`[data-player-id="${targetPlayer.id}"]`);
+                if (targetPlayerElement) {
+                    const cardContainer = targetPlayerElement.querySelector('.opponent-card-container');
+                    cardContainer.innerHTML = '';
+                    cardContainer.classList.add('interactive');
+                    const targetHandSize = state.hands[targetPlayer.id]?.length || 0;
+                    for (let i = 0; i < targetHandSize; i++) {
+                        const cardEl = CardUtils.createCardElement('', false);
+                        cardEl.style.cursor = 'pointer';
+                        cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'DRAW_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
+                        cardEl.addEventListener('mouseover', () => GameManager.handleAction({ type: 'HOVER_CARD', targetPlayerId: targetPlayer.id, cardIndex: i }));
+                        cardEl.addEventListener('mouseout', () => GameManager.handleAction({ type: 'UNHOVER_CARD' }));
+                        cardContainer.appendChild(cardEl);
+                    }
+                }
+            } else {
+                status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
+                if (targetPlayerOfTurn?.id === userId && state.hoverState) {
+                     const cardElements = myHandAreaCards.querySelectorAll('.card');
+                     if(cardElements[state.hoverState.cardIndex]) {
+                        cardElements[state.hoverState.cardIndex].classList.add('hovered');
+                     }
+                }
+            }
+            gameStatusMessage.textContent = status;
+        };
+        babanukiLogic.update = (gameData, action, playerId) => {
+            let state = gameData.gameState;
+            if (action.type === 'HOVER_CARD' && state.turn === playerId) {
+                gameData.gameState.hoverState = { targetPlayerId: action.targetPlayerId, cardIndex: action.cardIndex };
+                return gameData;
+            }
+            if (action.type === 'UNHOVER_CARD' && state.turn === playerId) {
+                gameData.gameState.hoverState = null;
+                return gameData;
+            }
+            if (state.turn !== playerId || state.winners.some(w => w.id === playerId)) return gameData;
+            if (action.type === 'DRAW_CARD') {
+                state.hoverState = null;
+                const targetHand = state.hands[action.targetPlayerId];
+                if (!targetHand || targetHand.length === 0) return gameData;
+                const drawnCardIndex = Math.floor(Math.random() * targetHand.length);
+                const drawnCard = targetHand.splice(drawnCardIndex, 1)[0];
+                const drawnRank = drawnCard.startsWith('JOKER') ? 'JOKER' : drawnCard.split('_')[1];
+                const myHand = state.hands[playerId];
+                const matchIndex = myHand.findIndex(card => (card.startsWith('JOKER') ? 'JOKER' : card.split('_')[1]) === drawnRank);
+                if (matchIndex > -1) {
+                    myHand.splice(matchIndex, 1);
+                } else {
+                    myHand.push(drawnCard);
+                }
+                if (state.hands[action.targetPlayerId].length === 0) {
+                    state.winners.push({ id: action.targetPlayerId, rank: state.winners.length + 1 });
+                }
+                if (myHand.length === 0) {
+                    state.winners.push({ id: playerId, rank: state.winners.length + 1 });
+                }
+                babanukiLogic.setNextTurn(gameData);
+            }
+            return gameData;
+        };
+        babanukiLogic.setNextTurn = (gameData) => {
+            const state = gameData.gameState;
+            const activePlayers = gameData.players.filter(p => !state.winners.some(w => w.id === p.id));
+            if (activePlayers.length <= 1) {
+                if (activePlayers.length === 1) state.winners.push({ id: activePlayers[0].id, rank: gameData.players.length + 1 });
+                gameData.status = 'finished';
+                state.turn = null;
+                return;
+            }
+            const currentTurnPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+            let nextPlayerIndex = (currentTurnPlayerIndex + 1) % gameData.players.length;
+            while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
+                nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
+            }
+            state.turn = gameData.players[nextPlayerIndex].id;
+        };
+        babanukiLogic.handleLeave = (gameData, playerId) => {
+            const state = gameData.gameState;
+            if (!state.winners.some(w => w.id === playerId)) {
+                state.winners.push({ id: playerId, rank: 99, left: true });
+            }
+            if (state.turn === playerId) {
+                babanukiLogic.setNextTurn(gameData);
+            }
+            return gameData;
+        };
+        
+        // ================== 神経衰弱ロジック詳細 ==================
+        shinkeisuijakuLogic.initialize = (gameData) => {
+            const deck = CardUtils.shuffle(CardUtils.createDeck(0));
+            const boardCards = deck.map(card => ({ cardString: card, isFaceUp: false, isMatched: false }));
+            const scores = gameData.players.reduce((acc, p) => ({ ...acc, [p.id]: 0 }), {});
+            return { boardCards, scores, turn: gameData.players[0].id, flippedIndices: [], winners: [] };
+        };
+        shinkeisuijakuLogic.render = (gameData) => {
+            GameManager.renderCommonLayout(gameData);
+            const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
+            myHandAreaCards.innerHTML = `<p class="text-center w-full">あなたのスコア: ${gameData.gameState.scores[userId] ?? 0}</p>`;
+            tableArea.innerHTML = '';
+            tableArea.className = 'flex-grow flex flex-col items-center justify-center bg-green-700 rounded-lg p-2 shadow-inner mb-2 relative min-h-[140px] grid-layout';
+            const state = gameData.gameState;
+            state.boardCards.forEach((card, index) => {
+                const cardEl = CardUtils.createCardElement(card.cardString, card.isFaceUp);
+                if (card.isMatched) { cardEl.classList.add('matched'); }
+                else if (!card.isFaceUp && state.turn === userId && state.flippedIndices.length < 2) {
+                    cardEl.addEventListener('click', () => GameManager.handleAction({ type: 'FLIP_CARD', index }));
+                }
+                tableArea.appendChild(cardEl);
+            });
+            let status = '';
+            if (gameData.status === 'finished') {
+                let winnerText = 'ゲーム終了！';
+                const maxScore = Math.max(...Object.values(state.scores));
+                const winners = gameData.players.filter(p => state.scores[p.id] === maxScore);
+                if (winners.length > 1) { winnerText += `勝者: ${winners.map(w => w.name).join(', ')} (引き分け)`; }
+                else if (winners.length === 1) { winnerText += `勝者: ${winners[0].name}`; }
+                status = winnerText;
+            } else if (state.turn === userId) {
+                status = `あなたのターンです。カードを${2 - state.flippedIndices.length}枚めくってください。`;
+            } else {
+                status = `${gameData.players.find(p => p.id === state.turn)?.name ?? ''}さんのターンです。`;
+            }
+            gameStatusMessage.textContent = status;
+            if (state.flippedIndices.length === 2 && state.turn === userId) {
+                const card1 = state.boardCards[state.flippedIndices[0]];
+                const card2 = state.boardCards[state.flippedIndices[1]];
+                const rank1 = card1.cardString.split('_')[1];
+                const rank2 = card2.cardString.split('_')[1];
+                if (rank1 !== rank2) {
+                    clearTimeout(clientSideTimer);
+                    clientSideTimer = setTimeout(() => { GameManager.handleAction({ type: 'CHECK_PAIR' }); }, 1000);
+                }
+            }
+        };
+        shinkeisuijakuLogic.update = (gameData, action, playerId) => {
+            let state = gameData.gameState;
+            if (state.turn !== playerId) return gameData;
+            if (action.type === 'FLIP_CARD') {
+                if (state.flippedIndices.length >= 2 || state.boardCards[action.index].isFaceUp) { return gameData; }
+                state.boardCards[action.index].isFaceUp = true;
+                state.flippedIndices.push(action.index);
+                if (state.flippedIndices.length === 2) {
                     const card1 = state.boardCards[state.flippedIndices[0]];
                     const card2 = state.boardCards[state.flippedIndices[1]];
                     const rank1 = card1.cardString.split('_')[1];
                     const rank2 = card2.cardString.split('_')[1];
-                    if (rank1 !== rank2) {
-                        clearTimeout(clientSideTimer);
-                        clientSideTimer = setTimeout(() => { GameManager.handleAction({ type: 'CHECK_PAIR' }); }, 1000);
+                    if (rank1 === rank2) {
+                        card1.isMatched = true; card2.isMatched = true; state.scores[playerId]++; state.flippedIndices = [];
+                        if (state.boardCards.every(c => c.isMatched)) { gameData.status = 'finished'; }
                     }
                 }
-            },
-            update: (gameData, action, playerId) => {
-                let state = gameData.gameState;
-                if (state.turn !== playerId) return gameData;
-                if (action.type === 'FLIP_CARD') {
-                    if (state.flippedIndices.length >= 2 || state.boardCards[action.index].isFaceUp) { return gameData; }
-                    state.boardCards[action.index].isFaceUp = true;
-                    state.flippedIndices.push(action.index);
-                    if (state.flippedIndices.length === 2) {
-                        const card1 = state.boardCards[state.flippedIndices[0]];
-                        const card2 = state.boardCards[state.flippedIndices[1]];
-                        const rank1 = card1.cardString.split('_')[1];
-                        const rank2 = card2.cardString.split('_')[1];
-                        if (rank1 === rank2) {
-                            card1.isMatched = true; card2.isMatched = true; state.scores[playerId]++; state.flippedIndices = [];
-                            if (state.boardCards.every(c => c.isMatched)) { gameData.status = 'finished'; }
-                        }
-                    }
-                } else if (action.type === 'CHECK_PAIR') {
-                    state.boardCards[state.flippedIndices[0]].isFaceUp = false; state.boardCards[state.flippedIndices[1]].isFaceUp = false;
-                    state.flippedIndices = [];
-                    shinkeisuijakuLogic.setNextTurn(gameData);
-                }
-                return gameData;
-            },
-            setNextTurn: (gameData) => {
-                const state = gameData.gameState;
-                const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
-                state.turn = gameData.players[(currentPlayerIndex + 1) % gameData.players.length].id;
-            },
-             handleLeave: (gameData, playerId) => {
-                if(gameData.gameState.turn === playerId) { shinkeisuijakuLogic.setNextTurn(gameData); }
-                return gameData;
+            } else if (action.type === 'CHECK_PAIR') {
+                state.boardCards[state.flippedIndices[0]].isFaceUp = false; state.boardCards[state.flippedIndices[1]].isFaceUp = false;
+                state.flippedIndices = [];
+                shinkeisuijakuLogic.setNextTurn(gameData);
             }
+            return gameData;
         };
-
-        gameLogics.doubt = doubtLogic;
-
-        // すべてのゲームロジックを割り当て
-        for (const key in gameLogics) {
-            if (gameLogics[key] === null) {
-                const logic = window[key + 'Logic'];
-                if(logic) gameLogics[key] = logic;
+        shinkeisuijakuLogic.setNextTurn = (gameData) => {
+            const state = gameData.gameState;
+            const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+            state.turn = gameData.players[(currentPlayerIndex + 1) % gameData.players.length].id;
+        };
+         shinkeisuijakuLogic.handleLeave = (gameData, playerId) => {
+            if(gameData.gameState.turn === playerId) { shinkeisuijakuLogic.setNextTurn(gameData); }
+            return gameData;
+        };
+        
+        // ================== ダウトロジック詳細 ==================
+        doubtLogic.initialize = (gameData) => {
+            const deck = CardUtils.shuffle(CardUtils.createDeck(0));
+            const hands = CardUtils.deal(deck, gameData.players.length);
+            const playerHands = {};
+            let startingPlayer = null;
+            gameData.players.forEach((p, i) => { 
+                playerHands[p.id] = hands[i]; 
+                if(hands[i].includes('S_1')) startingPlayer = p.id;
+            });
+            return {
+                hands: playerHands,
+                turn: startingPlayer || gameData.players[0].id,
+                field: [],
+                expectedRank: 1,
+                lastPlay: null, // {playerId, claimedRank, count}
+                winners: [],
+                log: "ダウトスタート！"
+            };
+        };
+        doubtLogic.sortHand = (hand) => hand.sort((a,b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));
+        doubtLogic.render = (gameData) => {
+            GameManager.renderCommonLayout(gameData, doubtLogic.sortHand);
+            const { tableArea, gameActionsArea, gameStatusMessage, myHandAreaCards } = allDomElements;
+            const state = gameData.gameState;
+            
+            tableArea.innerHTML = '';
+            if(state.field.length > 0) {
+                const pile = document.createElement('div');
+                pile.className = 'relative';
+                const totalCards = state.field.reduce((sum, play) => sum + play.cards.length, 0);
+                pile.appendChild(CardUtils.createCardElement('', false));
+                pile.innerHTML += `<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl font-bold text-white">${totalCards}</div>`;
+                tableArea.appendChild(pile);
+            } else {
+                tableArea.innerHTML = '<p class="text-gray-300">場にカードはありません</p>';
             }
-        }
+            
+            myHandAreaCards.querySelectorAll('.card').forEach(c => c.onclick = () => c.classList.toggle('selected'));
+            gameActionsArea.innerHTML = '';
+            
+            const myRank = state.winners.find(w => w.id === userId)?.rank;
+            if(myRank === 1) {
+                gameActionsArea.innerHTML = '<p class="text-lg font-bold text-yellow-300">あなたの勝ちです！</p>';
+            } else if (state.turn === userId) {
+                gameActionsArea.innerHTML = '<button id="play-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">出す</button>';
+                document.getElementById('play-btn')?.addEventListener('click', () => {
+                    const selected = Array.from(myHandAreaCards.querySelectorAll('.card.selected')).map(c => c.dataset.card);
+                    if (selected.length > 0) GameManager.handleAction({ type: 'PLAY_CARDS', cards: selected });
+                    else showMessage('出すカードを1枚以上選択してください。');
+                });
+            } else if (state.lastPlay && state.lastPlay.playerId !== userId) {
+                 gameActionsArea.innerHTML = '<button id="doubt-btn" class="ml-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg">ダウト！</button>';
+                 document.getElementById('doubt-btn')?.addEventListener('click', () => GameManager.handleAction({ type: 'CALL_DOUBT' }));
+            }
 
-
+            let status = state.log;
+            if(gameData.status !== 'finished') {
+                const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
+                if (state.turn === userId) {
+                     status = `あなたのターンです。「${rankDisplay}」を出してください。`;
+                } else {
+                    status = `${gameData.players.find(p=>p.id === state.turn)?.name ?? ''}さんのターンです。(次は${rankDisplay})`;
+                }
+            }
+            gameStatusMessage.textContent = status;
+        };
+        doubtLogic.update = (gameData, action, playerId) => {
+            let state = gameData.gameState;
+            if (state.winners.some(w => w.id === playerId)) return gameData;
+            switch (action.type) {
+                case 'PLAY_CARDS': {
+                    if (state.turn !== playerId) return gameData;
+                    state.hands[playerId] = state.hands[playerId].filter(c => !action.cards.includes(c));
+                    const playData = { cards: action.cards, playerId: playerId, claimedRank: state.expectedRank, count: action.cards.length };
+                    state.field.push(playData);
+                    state.lastPlay = playData;
+                    const rankDisplay = RANK_DISPLAY_MAP[state.expectedRank] || state.expectedRank;
+                    state.log = `${gameData.players.find(p=>p.id === playerId).name}が「${rankDisplay}」を${action.cards.length}枚出しました。`;
+                    if (state.hands[playerId].length === 0) {
+                        state.winners.push({ id: playerId, rank: 1 });
+                        gameData.status = 'finished';
+                        state.log = `${gameData.players.find(p=>p.id === playerId).name}があがりました！`;
+                        return gameData;
+                    }
+                    doubtLogic.setNextTurn(gameData);
+                    break;
+                }
+                case 'CALL_DOUBT': {
+                    if (state.turn === playerId || !state.lastPlay) return gameData;
+                    const lastPlay = state.lastPlay;
+                    const lastPlayerId = lastPlay.playerId;
+                    const isLie = lastPlay.cards.some(c => parseInt(c.split('_')[1]) !== lastPlay.claimedRank);
+                    const allFieldCards = state.field.flatMap(p => p.cards);
+                    
+                    let penaltyPlayerId, logMsg;
+                    if (isLie) { // ダウト成功
+                        penaltyPlayerId = lastPlayerId;
+                        logMsg = `${gameData.players.find(p=>p.id===playerId).name}のダウト成功！ ${gameData.players.find(p=>p.id===lastPlayerId).name}が場のカードを全て引き取ります。`;
+                    } else { // ダウト失敗
+                        penaltyPlayerId = playerId;
+                        logMsg = `${gameData.players.find(p=>p.id===playerId).name}のダウト失敗！場のカードを全て引き取ります。`;
+                    }
+                    
+                    state.hands[penaltyPlayerId].push(...allFieldCards);
+                    state.field = [];
+                    state.lastPlay = null;
+                    state.log = logMsg;
+                    
+                    if (isLie) { // 成功時はダウトした人からターン開始
+                        state.turn = playerId;
+                    } else { // 失敗時は場のカードを出した人からターン再開
+                       state.turn = lastPlayerId;
+                       doubtLogic.setNextTurn(gameData);
+                    }
+                    break;
+                }
+            }
+            return gameData;
+        };
+        doubtLogic.setNextTurn = (gameData) => {
+            const state = gameData.gameState;
+            const currentPlayerIndex = gameData.players.findIndex(p => p.id === state.turn);
+            let nextPlayerIndex = (currentPlayerIndex + 1) % gameData.players.length;
+            while (state.winners.some(w => w.id === gameData.players[nextPlayerIndex].id)) {
+                nextPlayerIndex = (nextPlayerIndex + 1) % gameData.players.length;
+            }
+            state.turn = gameData.players[nextPlayerIndex].id;
+            state.expectedRank = (state.expectedRank % 13) + 1;
+        };
+        doubtLogic.handleLeave = (gameData, playerId) => {
+            if(gameData.gameState.turn === playerId) {
+                doubtLogic.setNextTurn(gameData);
+            }
+            return gameData;
+        };
+        
         window.onload = initialize;
     </script>
 </body>
